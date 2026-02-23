@@ -79,7 +79,7 @@ import { flushTokenRegistry } from './pg/flushers/tokens.js'; // ✅ ADDED
 import { calculateDepositEnd, calculateVotingEnd } from '../utils/gov_params.js';
 import { buildTokenRegistryRow, inferTokenType, normalizeIbcDenom } from '../utils/token-registry.js';
 import type { TokenRegistrySource, TokenRegistryType } from '../utils/token-registry.js';
-import { deriveConsensusAddress } from '../utils/crypto.js';
+import { deriveConsensusAddress, normalizePubkey } from '../utils/crypto.js';
 // ✅ Validator ABCI Helper (for lazy discovery)
 import { fetchAllValidatorsViaAbci } from './pg/helpers/staking_abci.js';
 // ✅ Gov ABCI Helper (for fetching proposal data via RPC)
@@ -1120,7 +1120,7 @@ export class PostgresSink implements Sink {
         });
 
         // ✅ LAZY DISCOVERY: If this validator is unknown, trigger a metadata sync
-        if (this.rpc && this.protoRoot && !this.knownValidatorsHeaders.has(cAddr)) {
+        if (this.rpc && this.protoRoot) {
           // Limit refresh to once per 100 blocks to avoid spamming ABCI
           if (height > this.lastValidatorRefreshHeight + 100) {
             this.lastValidatorRefreshHeight = height;
@@ -1968,7 +1968,7 @@ export class PostgresSink implements Sink {
         // 🟢 STAKING LOGIC 🟢
         if (isSuccess && (type === '/cosmos.staking.v1beta1.MsgCreateValidator' || type === '/cosmos.staking.v1beta1.MsgEditValidator')) {
           const pubkey = m.pubkey?.value || m.consensus_pubkey?.value;
-          const consensusPubKey = pubkey ? (typeof pubkey === 'string' ? pubkey : Buffer.from(pubkey).toString('base64')) : null;
+          const consensusPubKey = pubkey ? normalizePubkey(typeof pubkey === 'string' ? pubkey : Buffer.from(pubkey).toString('base64')) : null;
           const consensusAddress = consensusPubKey ? deriveConsensusAddress(consensusPubKey) : null;
 
           validatorsRows.push({
@@ -1982,7 +1982,7 @@ export class PostgresSink implements Sink {
             max_commission_rate: parseDec(m.commission?.max_rate),
             max_change_rate: parseDec(m.commission?.max_change_rate),
             min_self_delegation: m.min_self_delegation,
-            status: 'BOND_STATUS_BONDED',
+            status: null,
             updated_at_height: height,
             updated_at_time: time
           });

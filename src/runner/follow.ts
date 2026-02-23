@@ -51,6 +51,21 @@ export async function followLoop(
   log.info(`[follow] entering live mode from height ${next}, poll=${opts.pollMs}ms`);
   for (; ;) {
     try {
+      // 🛡️ ABSOLUTE PRIORITY: Always clear gaps before looking for new blocks.
+      if (typeof (sink as any).recordMissingBlock === 'function') {
+        let totalAttempted = 0;
+        for (; ;) {
+          const { attempted } = await retryMissingBlocks(rpc, decodePool, sink, {
+            concurrency: Math.max(1, Math.min(opts.concurrency, 8)),
+            caseMode: opts.caseMode,
+            limit: 1000,
+          });
+          if (attempted === 0) break;
+          totalAttempted += attempted;
+          log.info(`[follow/gap] priority recovery: ${totalAttempted} blocks attempted…`);
+        }
+      }
+
       const st = await rpc.fetchStatus();
       const latest = Number(st['sync_info']['latest_block_height']);
       if (next <= latest) {
@@ -70,15 +85,6 @@ export async function followLoop(
       } else {
         const jitter = 0.8 + Math.random() * 0.4;
         await sleep(Math.floor(opts.pollMs * jitter));
-      }
-      if (retryIntervalMs > 0 && Date.now() - lastMissingRetryAt >= retryIntervalMs) {
-        if (typeof (sink as any).recordMissingBlock === 'function') {
-          await retryMissingBlocks(rpc, decodePool, sink, {
-            concurrency: Math.max(1, Math.min(opts.concurrency, 8)),
-            caseMode: opts.caseMode,
-          });
-        }
-        lastMissingRetryAt = Date.now();
       }
     } catch (err: any) {
       // 🛡️ Prevent follow loop from crashing on transient errors

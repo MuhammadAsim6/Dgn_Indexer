@@ -5,7 +5,7 @@ import { RpcClient } from '../../../rpc/client.js';
 import { Root } from 'protobufjs';
 import { decodeAnyWithRoot } from '../../../decode/dynamicProto.js';
 import { getLogger } from '../../../utils/logger.js';
-import { deriveConsensusAddress } from '../../../utils/crypto.js';
+import { deriveConsensusAddress, normalizePubkey } from '../../../utils/crypto.js';
 import { parseDec } from '../parsing.js';
 
 const log = getLogger('staking/abci');
@@ -60,9 +60,10 @@ function extractPubkeyBase64(v: any, protoRoot: Root): string | null {
         }
 
         // Step 3: Fallback — return the raw value as base64
-        return typeof pubAny.value === 'string'
+        const finalKey = typeof pubAny.value === 'string'
             ? pubAny.value
             : Buffer.from(rawVal).toString('base64');
+        return normalizePubkey(finalKey);
     } catch {
         return null;
     }

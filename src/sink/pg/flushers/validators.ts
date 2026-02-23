@@ -40,6 +40,7 @@ export async function upsertValidators(client: PoolClient, rows: any[]) {
       max_change_rate = COALESCE(EXCLUDED.max_change_rate, core.validators.max_change_rate),
       status = COALESCE(EXCLUDED.status, core.validators.status),
       updated_at_height = EXCLUDED.updated_at_height,
-      updated_at_time = EXCLUDED.updated_at_time`
+      updated_at_time = EXCLUDED.updated_at_time
+      WHERE EXCLUDED.updated_at_height >= COALESCE(core.validators.updated_at_height, 0)`
     );
 }

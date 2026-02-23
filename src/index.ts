@@ -164,6 +164,8 @@ async function main() {
             await upsertValidators(client, rows);
             await client.query('COMMIT');
             log.info(`[start] synced ${rows.length} validators`);
+          } else {
+            log.warn('[start] no staking validators found via RPC; starting with empty/stale metadata');
           }
         } finally {
           client.release();
@@ -292,6 +294,24 @@ async function main() {
     }
 
 
+    if (cfg.sinkKind === 'postgres') {
+      log.info('[start] prioritizing missing block recovery…');
+      let totalAttempted = 0;
+      for (; ;) {
+        const { attempted } = await retryMissingBlocks(rpc, decodePool, sink, {
+          concurrency: Math.max(1, Math.min(cfg.concurrency ?? 8, 8)),
+          caseMode: cfg.caseMode,
+          limit: 5000, // Large batch per pass
+        });
+        totalAttempted += attempted;
+        if (attempted === 0) break;
+        log.info(`[start] missing blocks recovery in progress: ${totalAttempted} attempted…`);
+      }
+      if (totalAttempted > 0) {
+        log.info(`[start] missing block recovery complete: ${totalAttempted} blocks processed`);
+      }
+    }
+
     const backfill = await syncRange(rpc, decodePool, sink, {
       from: startFrom,
       to: endHeight,
@@ -302,13 +322,6 @@ async function main() {
     });
 
     log.info(`[done-range] processed ${backfill.processed} blocks`);
-
-    if (cfg.sinkKind === 'postgres') {
-      await retryMissingBlocks(rpc, decodePool, sink, {
-        concurrency: Math.max(1, Math.min(cfg.concurrency ?? 8, 8)),
-        caseMode: cfg.caseMode,
-      });
-    }
 
     if (cfg.sinkKind === 'postgres' && cfg.reconcileMode !== 'off') {
       try {
@@ -361,7 +374,7 @@ async function main() {
           } finally {
             reconcileRunning = false;
           }
-        }, cfg.reconcileIntervalMs ?? 5 * 60 * 1000);
+        }, cfg.reconcileIntervalMs ?? 24 * 60 * 60 * 1000); // 1 day cleanup/reconcile period
       }
 
       await followLoop(rpc, decodePool, sink, {
