@@ -26,10 +26,11 @@ BEGIN
         RETURN;
     END IF;
 
-    -- 2. Calculate cutoff height
-    v_cutoff := v_max_height - p_retention_blocks;
+    -- 2. Calculate cutoff height with a 100k block safety buffer.
+    --    This ensures we don't drop partitions the indexer is actively writing to.
+    v_cutoff := v_max_height - p_retention_blocks - 100000;
     IF v_cutoff <= 0 THEN
-        RAISE NOTICE 'Retention: max_height=% with retention=% → cutoff=% (nothing to drop)',
+        RAISE NOTICE 'Retention: max_height=% with retention=% + buffer=100k → cutoff=% (nothing to drop)',
                       v_max_height, p_retention_blocks, v_cutoff;
         RETURN;
     END IF;
@@ -58,8 +59,22 @@ BEGIN
         )
         -- Skip DEFAULT partitions
         AND pg_get_expr(c.relpartbound, c.oid, true) LIKE 'FOR VALUES FROM%'
-        ORDER BY n.nspname, parent.relname, c.relname
+        -- 🔒 DEADLOCK PROTECTION: Order tables to match indexer flush sequence
+        -- indexer flushes 'events' then 'event_attrs'. We must drop in SAME order 
+        -- to prevent AB/BA lock cycles.
+        ORDER BY n.nspname, 
+                 CASE 
+                   WHEN parent.relname = 'events' THEN 1 
+                   WHEN parent.relname = 'event_attrs' THEN 2 
+                   ELSE 3 
+                 END, 
+                 parent.relname, c.relname
     LOOP
+        -- Protect critical p0 partition for token supply tracking (Bootstrap data)
+        IF r.schema_name = 'tokens' AND r.part_name = 'factory_supply_events_p0' THEN
+            RAISE NOTICE '  SKIP: %.% (Protected bootstrap partition)', r.schema_name, r.part_name;
+            CONTINUE;
+        END IF;
         -- Extract upper bound: "FOR VALUES FROM ('1000000') TO ('1500000')" → 1500000
         BEGIN
             v_upper := (regexp_replace(r.bounds, '.*TO \(''?(\d+)''?\).*', '\1'))::bigint;
