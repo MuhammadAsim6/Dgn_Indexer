@@ -66,8 +66,3 @@ ALTER TABLE core.indexer_progress SET (
     autovacuum_vacuum_threshold = 10
 );
 
--- core.validators: Updated on startup and runtime
-ALTER TABLE core.validators SET (
-    autovacuum_vacuum_scale_factor = 0.1,
-    autovacuum_vacuum_threshold = 5
-);

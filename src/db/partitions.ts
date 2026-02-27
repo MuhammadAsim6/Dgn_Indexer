@@ -16,7 +16,7 @@ export async function ensureCorePartitions(client: PoolClient, minHeight: number
     // Core - ✅ events now uses RANGE (not HASH)
     ['core', 'blocks'], ['core', 'transactions'], ['core', 'messages'], ['core', 'event_attrs'],
     ['core', 'events'],  // ✅ CHANGED: Now RANGE partitioned for archival support
-    ['core', 'validator_set'], ['core', 'validator_missed_blocks'], ['core', 'network_params'],
+    ['core', 'network_params'],
 
     // Modules
     ['bank', 'transfers'], ['bank', 'balance_deltas'],

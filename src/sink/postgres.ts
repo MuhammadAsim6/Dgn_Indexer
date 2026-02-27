@@ -39,8 +39,6 @@ import { flushTransfers } from './pg/flushers/transfers.js';
 import { flushWasmExec } from './pg/flushers/wasm_exec.js';
 import { flushWasmEvents } from './pg/flushers/wasm_events.js';
 import { flushWasmEventAttrs } from './pg/flushers/wasm_event_attrs.js';
-// ✅ ADDED: Validator Flusher
-import { upsertValidators } from './pg/flushers/validators.js';
 // ✅ ADDED: IBC Flusher
 import { flushIbcPackets } from './pg/flushers/ibc_packets.js';
 import { flushIbcTransfers } from './pg/flushers/ibc_transfers.js';
@@ -465,7 +463,6 @@ export class PostgresSink implements Sink {
     wasmExec: 5000,
     wasmEvents: 5000,
     wasmEventAttrs: 5000,
-    validators: 500,
     ibcPackets: 2000,
     ibcChannels: 500,
 
@@ -939,6 +936,8 @@ export class PostgresSink implements Sink {
         }
       }
     }
+    // ✅ NATIVE TOKEN REGISTRY (Always ensure Zigchain native token is registered)
+    registerToken('uzig', 'native', { symbol: 'ZIG', base_denom: 'uzig', decimals: 6 }, null);
 
     // 🟢 BANK BALANCE DELTAS (Helper)
     const extractBalanceDeltas = (
