@@ -1,7 +1,10 @@
 -- 067-retention-policy.sql
 -- Automatic data retention: drops partitions older than N blocks.
 -- Works with ANY partition size (100k, 500k, etc.) — reads actual bounds from pg_catalog.
--- Safe for running indexer — only drops partitions fully below the cutoff.
+-- Safe for a LIVE running indexer:
+--   Uses DETACH PARTITION (ShareUpdateExclusiveLock) then DROP TABLE on the
+--   detached standalone table. Compatible with concurrent INSERT operations.
+--   Note: DETACH CONCURRENTLY cannot run inside a function (PG restriction).
 --
 -- Usage:
 --   SELECT * FROM util.drop_old_partitions(1000000);  -- keep latest 1M blocks
@@ -27,7 +30,7 @@ BEGIN
     END IF;
 
     -- 2. Calculate cutoff height with a 100k block safety buffer.
-    --    This ensures we don't drop partitions the indexer is actively writing to.
+    --    This ensures we never touch partitions the indexer may still be writing to.
     v_cutoff := v_max_height - p_retention_blocks - 100000;
     IF v_cutoff <= 0 THEN
         RAISE NOTICE 'Retention: max_height=% with retention=% + buffer=100k → cutoff=% (nothing to drop)',
@@ -38,10 +41,12 @@ BEGIN
     RAISE NOTICE 'Retention: max_height=%, retention=%, cutoff=%',
                   v_max_height, p_retention_blocks, v_cutoff;
 
-    -- 3. Find and drop all partitions whose UPPER bound <= cutoff
-    --    This means the ENTIRE partition is below the retention window.
-    --    We parse actual bounds from pg_catalog, so it works regardless of
-    --    partition size (100k for events/event_attrs, 500k for everything else).
+    -- 3. Find all eligible partitions and remove them using the two-phase approach:
+    --      Phase A: DETACH PARTITION
+    --               Requires only ShareUpdateExclusiveLock on the parent — compatible
+    --               with concurrent INSERT/UPDATE on the parent. No deadlock risk.
+    --      Phase B: DROP TABLE on the detached (now standalone) table.
+    --               No longer a partition, so no parent lock needed. Safe.
     FOR r IN
         SELECT c.relname AS part_name,
                n.nspname AS schema_name,
@@ -59,22 +64,14 @@ BEGIN
         )
         -- Skip DEFAULT partitions
         AND pg_get_expr(c.relpartbound, c.oid, true) LIKE 'FOR VALUES FROM%'
-        -- 🔒 DEADLOCK PROTECTION: Order tables to match indexer flush sequence
-        -- indexer flushes 'events' then 'event_attrs'. We must drop in SAME order 
-        -- to prevent AB/BA lock cycles.
-        ORDER BY n.nspname, 
-                 CASE 
-                   WHEN parent.relname = 'events' THEN 1 
-                   WHEN parent.relname = 'event_attrs' THEN 2 
-                   ELSE 3 
-                 END, 
-                 parent.relname, c.relname
+        ORDER BY n.nspname, parent.relname, c.relname
     LOOP
         -- Protect critical p0 partition for token supply tracking (Bootstrap data)
         IF r.schema_name = 'tokens' AND r.part_name = 'factory_supply_events_p0' THEN
             RAISE NOTICE '  SKIP: %.% (Protected bootstrap partition)', r.schema_name, r.part_name;
             CONTINUE;
         END IF;
+
         -- Extract upper bound: "FOR VALUES FROM ('1000000') TO ('1500000')" → 1500000
         BEGIN
             v_upper := (regexp_replace(r.bounds, '.*TO \(''?(\d+)''?\).*', '\1'))::bigint;
@@ -82,11 +79,21 @@ BEGIN
             CONTINUE; -- Skip partitions with unparseable bounds
         END;
 
-        -- Only drop if the ENTIRE partition is below cutoff
+        -- Only remove if the ENTIRE partition is below the cutoff
         IF v_upper <= v_cutoff THEN
-            RAISE NOTICE '  DROP: %.% (%, parent=%.%)',
+            RAISE NOTICE '  DETACH+DROP: %.% (%, parent=%.%)',
                           r.schema_name, r.part_name, r.bounds, r.schema_name, r.parent_name;
 
+            -- Phase A: Detach partition from parent (ShareUpdateExclusiveLock only).
+            -- This is compatible with concurrent INSERTs on the parent table.
+            EXECUTE format(
+                'ALTER TABLE %I.%I DETACH PARTITION %I.%I',
+                r.schema_name, r.parent_name,
+                r.schema_name, r.part_name
+            );
+
+            -- Phase B: Drop the now-standalone table. Since it is no longer a
+            -- partition, this does not lock the parent table at all.
             EXECUTE format('DROP TABLE %I.%I', r.schema_name, r.part_name);
 
             dropped_partition := r.schema_name || '.' || r.part_name;

@@ -5,12 +5,8 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 CREATE SCHEMA IF NOT EXISTS core;
 CREATE SCHEMA IF NOT EXISTS bank;
-CREATE SCHEMA IF NOT EXISTS stake;
-CREATE SCHEMA IF NOT EXISTS gov;
 CREATE SCHEMA IF NOT EXISTS ibc;
 CREATE SCHEMA IF NOT EXISTS wasm;
-CREATE SCHEMA IF NOT EXISTS authz_feegrant;
-CREATE SCHEMA IF NOT EXISTS groups;
 CREATE SCHEMA IF NOT EXISTS tokens;
 CREATE SCHEMA IF NOT EXISTS analytics;
 CREATE SCHEMA IF NOT EXISTS zigchain;
@@ -26,7 +22,7 @@ DO $$ BEGIN
 END $$;
 
 -- ============================================================================
--- 1) BLOCKS & VALIDATORS
+-- 1) BLOCKS
 -- ============================================================================
 CREATE TABLE core.blocks (
     height       BIGINT PRIMARY KEY,
@@ -43,38 +39,6 @@ CREATE TABLE IF NOT EXISTS core.blocks_p0 PARTITION OF core.blocks FOR VALUES FR
 
 CREATE INDEX IF NOT EXISTS idx_blocks_time ON core.blocks USING BTREE (time);
 CREATE INDEX IF NOT EXISTS idx_blocks_proposer ON core.blocks (proposer_address);
-
-CREATE TABLE core.validators (
-    operator_address    TEXT PRIMARY KEY,
-    consensus_address   TEXT UNIQUE,
-    consensus_pubkey    TEXT,
-    moniker             TEXT,
-    website             TEXT,
-    details             TEXT,
-    commission_rate     NUMERIC(20, 18),
-    max_commission_rate NUMERIC(20, 18),
-    max_change_rate     NUMERIC(20, 18),
-    min_self_delegation NUMERIC(64, 0),
-    status              TEXT,
-    updated_at_height   BIGINT,
-    updated_at_time     TIMESTAMPTZ
-);
-
-CREATE TABLE core.validator_set (
-    height            BIGINT NOT NULL,
-    consensus_address TEXT   NOT NULL,
-    voting_power      BIGINT NOT NULL,
-    proposer_priority BIGINT NULL,
-    PRIMARY KEY (height, consensus_address)
-) PARTITION BY RANGE (height);
-CREATE TABLE IF NOT EXISTS core.validator_set_p0 PARTITION OF core.validator_set FOR VALUES FROM (0) TO (500000);
-
-CREATE TABLE core.validator_missed_blocks (
-    consensus_address TEXT   NOT NULL,
-    height           BIGINT NOT NULL,
-    PRIMARY KEY (consensus_address, height)
-) PARTITION BY RANGE (height);
-CREATE TABLE IF NOT EXISTS core.validator_missed_blocks_p0 PARTITION OF core.validator_missed_blocks FOR VALUES FROM (0) TO (500000);
 
 -- ============================================================================
 -- 2) TRANSACTIONS / MESSAGES / EVENTS
@@ -146,7 +110,7 @@ CREATE INDEX IF NOT EXISTS idx_missing_blocks_status ON core.missing_blocks(stat
 CREATE INDEX IF NOT EXISTS idx_missing_blocks_last_seen ON core.missing_blocks(last_seen DESC);
 
 -- ============================================================================
--- 3) BANK & STAKE
+-- 3) BANK
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS bank.transfers (
     tx_hash   TEXT           NOT NULL,
@@ -181,81 +145,6 @@ CREATE TABLE bank.balances_current (
     account  TEXT PRIMARY KEY,
     balances JSONB NOT NULL
 ) WITH (FILLFACTOR = 80);
-
-CREATE TABLE stake.delegation_events (
-    height            BIGINT         NOT NULL,
-    tx_hash           TEXT           NOT NULL,
-    msg_index         INT            NOT NULL,
-    event_type        TEXT           NOT NULL,
-    delegator_address TEXT           NOT NULL,
-    validator_src     TEXT           NULL,
-    validator_dst     TEXT           NULL,
-    denom             TEXT           NOT NULL,
-    amount            NUMERIC(80, 0) NOT NULL,
-    completion_time   TIMESTAMPTZ    NULL,
-    PRIMARY KEY (height, tx_hash, msg_index)
-) PARTITION BY RANGE (height);
-
-CREATE TABLE stake.delegations_current (
-    delegator_address TEXT           NOT NULL,
-    validator_address TEXT           NOT NULL,
-    denom             TEXT           NOT NULL,
-    amount            NUMERIC(80, 0) NOT NULL,
-    PRIMARY KEY (delegator_address, validator_address, denom)
-) WITH (FILLFACTOR = 80);
-
-CREATE TABLE stake.distribution_events (
-    height            BIGINT         NOT NULL,
-    tx_hash           TEXT           NOT NULL,
-    msg_index         INT            NOT NULL,
-    event_type        TEXT           NOT NULL, 
-    delegator_address TEXT           NULL,
-    validator_address TEXT           NULL,
-    denom             TEXT           NULL,
-    amount            NUMERIC(80, 0) NULL,
-    withdraw_address  TEXT           NULL,
-    PRIMARY KEY (height, tx_hash, msg_index)
-) PARTITION BY RANGE (height);
-
--- ============================================================================
--- 4) GOVERNANCE
--- ============================================================================
-CREATE TABLE gov.proposals (
-    proposal_id     BIGINT PRIMARY KEY,
-    submitter       TEXT NULL,
-    title           TEXT NULL,
-    summary         TEXT NULL,
-    proposal_type   TEXT NULL,
-    status          proposal_status NOT NULL,
-    deposit_end     TIMESTAMPTZ NULL,
-    voting_start    TIMESTAMPTZ NULL,
-    voting_end      TIMESTAMPTZ NULL,
-    total_deposit   JSONB NULL,
-    changes         JSONB NULL,
-    submit_time     TIMESTAMPTZ NULL
-);
-
-CREATE TABLE gov.deposits (
-    proposal_id BIGINT         NOT NULL,
-    depositor   TEXT           NOT NULL,
-    denom       TEXT           NOT NULL,
-    amount      NUMERIC(80, 0) NOT NULL,
-    height      BIGINT         NOT NULL,
-    tx_hash     TEXT           NOT NULL,
-    msg_index   INT            NOT NULL DEFAULT 0,
-    PRIMARY KEY (proposal_id, depositor, denom, height, tx_hash, msg_index)
-) PARTITION BY RANGE (height);
-
-CREATE TABLE gov.votes (
-    proposal_id BIGINT          NOT NULL,
-    voter       TEXT            NOT NULL,
-    option      TEXT            NOT NULL,
-    option_index INT            NOT NULL DEFAULT 0,
-    weight      NUMERIC(20, 18) NULL,
-    height      BIGINT          NOT NULL,
-    tx_hash     TEXT            NOT NULL,
-    PRIMARY KEY (proposal_id, voter, height, tx_hash, option_index)
-) PARTITION BY RANGE (height);
 
 -- ============================================================================
 -- 5) IBC
@@ -471,32 +360,6 @@ CREATE TABLE IF NOT EXISTS wasm.admin_changes_p0 PARTITION OF wasm.admin_changes
 
 
 -- ============================================================================
--- 7) AUTHZ / FEEGRANT
--- ============================================================================
-CREATE TABLE authz_feegrant.authz_grants (
-    granter      TEXT        NOT NULL,
-    grantee      TEXT        NOT NULL,
-    msg_type_url TEXT        NOT NULL,
-    expiration   TIMESTAMPTZ NULL,
-    height       BIGINT      NOT NULL,
-    revoked      BOOLEAN     NOT NULL DEFAULT FALSE,
-    PRIMARY KEY (granter, grantee, msg_type_url, height)
-) PARTITION BY RANGE (height);
-CREATE TABLE IF NOT EXISTS authz_feegrant.authz_grants_p0 PARTITION OF authz_feegrant.authz_grants FOR VALUES FROM (0) TO (500000);
-
-CREATE TABLE authz_feegrant.fee_grants (
-    granter    TEXT        NOT NULL,
-    grantee    TEXT        NOT NULL,
-    allowance  JSONB       NULL,
-    expiration TIMESTAMPTZ NULL,
-    height     BIGINT      NOT NULL,
-    revoked    BOOLEAN     NOT NULL DEFAULT FALSE,
-    PRIMARY KEY (granter, grantee, height)
-) PARTITION BY RANGE (height);
-CREATE TABLE IF NOT EXISTS authz_feegrant.fee_grants_p0 PARTITION OF authz_feegrant.fee_grants FOR VALUES FROM (0) TO (500000);
-
-CREATE INDEX IF NOT EXISTS idx_authz_grants_grantee ON authz_feegrant.authz_grants (grantee, height DESC);
-CREATE INDEX IF NOT EXISTS idx_fee_grants_grantee ON authz_feegrant.fee_grants (grantee, height DESC);
 
 -- ============================================================================
 -- 8) TOKENS (CW20)
@@ -546,10 +409,6 @@ CREATE TABLE IF NOT EXISTS core.network_params_p0 PARTITION OF core.network_para
 CREATE INDEX IF NOT EXISTS idx_transfers_from ON bank.transfers (from_addr, height DESC);
 CREATE INDEX IF NOT EXISTS idx_transfers_to ON bank.transfers (to_addr, height DESC);
 
--- Delegation events by delegator (staking dashboard)
-CREATE INDEX IF NOT EXISTS idx_delegation_delegator ON stake.delegation_events (delegator_address, height DESC);
-CREATE INDEX IF NOT EXISTS idx_distribution_delegator ON stake.distribution_events (delegator_address, height DESC);
-
 -- Messages by type (explorer query)
 CREATE INDEX IF NOT EXISTS idx_messages_type ON core.messages (type_url, height DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_signer ON core.messages (signer, height DESC);
@@ -567,8 +426,6 @@ CREATE INDEX IF NOT EXISTS idx_ibc_transfers_status ON ibc.transfers (status);
 CREATE INDEX IF NOT EXISTS idx_ibc_transfers_channel ON ibc.transfers (channel_id_src);
 CREATE INDEX IF NOT EXISTS idx_ibc_transfers_denom ON ibc.transfers (denom, sequence DESC);
 
--- Gov by proposal (governance dashboard)
-CREATE INDEX IF NOT EXISTS idx_gov_votes_proposal ON gov.votes (proposal_id, height DESC);
 -- ============================================================================
 -- 11) ZIGCHAIN & ANALYTICS EXTENSIONS (Auto-Added by Recovery)
 -- ============================================================================

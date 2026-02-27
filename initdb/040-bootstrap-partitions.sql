@@ -46,8 +46,6 @@ BEGIN
         UNION ALL SELECT 'zigchain.dex_liquidity'::regclass 
         UNION ALL SELECT 'wasm.executions'::regclass        
         UNION ALL SELECT 'wasm.event_attrs'::regclass
-        UNION ALL SELECT 'authz_feegrant.authz_grants'::regclass
-        UNION ALL SELECT 'authz_feegrant.fee_grants'::regclass
         UNION ALL SELECT 'tokens.cw20_transfers'::regclass
         UNION ALL SELECT 'ibc.transfers'::regclass
     LOOP

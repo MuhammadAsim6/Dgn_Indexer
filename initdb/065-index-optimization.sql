@@ -68,16 +68,8 @@ CREATE INDEX IF NOT EXISTS idx_factory_supply_action_denom
 CREATE INDEX IF NOT EXISTS idx_txs_signers_gin
   ON core.transactions USING GIN (signers);
 
--- 🔴 HIGH: Gov votes by voter
-CREATE INDEX IF NOT EXISTS idx_gov_votes_voter
-  ON gov.votes (voter, proposal_id DESC);
 
--- 🟠 MEDIUM: Authz/feegrant granter lookups
-CREATE INDEX IF NOT EXISTS idx_authz_grants_granter
-  ON authz_feegrant.authz_grants (granter, height DESC);
 
-CREATE INDEX IF NOT EXISTS idx_fee_grants_granter
-  ON authz_feegrant.fee_grants (granter, height DESC);
 
 -- 🟠 MEDIUM: WASM contract lookups
 CREATE INDEX IF NOT EXISTS idx_wasm_contracts_creator
@@ -94,6 +86,6 @@ CREATE INDEX IF NOT EXISTS idx_wasm_contracts_label_trgm
 -- ============================================================================
 -- DONE. Verify with:
 --   SELECT indexname, tablename FROM pg_indexes
---   WHERE schemaname IN ('core','bank','stake','gov','ibc','wasm','authz_feegrant','zigchain','tokens')
+--   WHERE schemaname IN ('core','bank','stake','ibc','wasm','zigchain','tokens')
 --   ORDER BY schemaname, tablename, indexname;
 -- ============================================================================

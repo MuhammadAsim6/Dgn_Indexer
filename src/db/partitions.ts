@@ -20,9 +20,6 @@ export async function ensureCorePartitions(client: PoolClient, minHeight: number
 
     // Modules
     ['bank', 'transfers'], ['bank', 'balance_deltas'],
-    ['stake', 'delegation_events'], ['stake', 'distribution_events'],
-    ['gov', 'deposits'], ['gov', 'votes'],
-    ['authz_feegrant', 'authz_grants'], ['authz_feegrant', 'fee_grants'],
     ['tokens', 'cw20_transfers'],
     ['wasm', 'executions'], ['wasm', 'events'], ['wasm', 'event_attrs'], ['wasm', 'contract_migrations'],
     ['wasm', 'dex_swaps'], ['wasm', 'admin_changes'],

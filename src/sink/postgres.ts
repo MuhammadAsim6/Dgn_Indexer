@@ -36,13 +36,9 @@ import { flushMsgs } from './pg/flushers/msgs.js';
 import { flushEvents } from './pg/flushers/events.js';
 import { flushAttrs } from './pg/flushers/attrs.js';
 import { flushTransfers } from './pg/flushers/transfers.js';
-import { flushStakeDeleg } from './pg/flushers/stake_deleg.js';
-import { flushStakeDistr } from './pg/flushers/stake_distr.js';
 import { flushWasmExec } from './pg/flushers/wasm_exec.js';
 import { flushWasmEvents } from './pg/flushers/wasm_events.js';
 import { flushWasmEventAttrs } from './pg/flushers/wasm_event_attrs.js';
-// ✅ ADDED: Gov Flushers
-import { flushGovDeposits, flushGovVotes, upsertGovProposals } from './pg/flushers/gov.js';
 // ✅ ADDED: Validator Flusher
 import { upsertValidators } from './pg/flushers/validators.js';
 // ✅ ADDED: IBC Flusher
@@ -52,8 +48,6 @@ import { flushIbcChannels } from './pg/flushers/ibc_channels.js';
 import { flushIbcClients } from './pg/flushers/ibc_clients.js';
 import { flushIbcDenoms } from './pg/flushers/ibc_denoms.js';
 import { flushIbcConnections } from './pg/flushers/ibc_connections.js';
-import { flushAuthzGrants } from './pg/flushers/authz_grants.js';
-import { flushFeeGrants } from './pg/flushers/fee_grants.js';
 import { flushCw20Transfers } from './pg/flushers/cw20_transfers.js';
 
 // ✅ ADDED: Bank & Params Flushers
@@ -66,27 +60,21 @@ import { flushWasmAdminChanges } from './pg/flushers/wasm_admin_changes.js';
 // ✅ Zigchain Flusher
 import { flushZigchainData } from './pg/flushers/zigchain.js';
 
-
 // ✅ Unknown Messages Quarantine
 import { flushUnknownMessages } from './pg/flushers/unknown_msgs.js';
 
 // ✅ Zigchain Factory Supply Tracking
 import { flushFactorySupplyEvents } from './pg/flushers/factory_supply.js';
 import { flushWasmSwaps } from './pg/flushers/wasm_swaps.js';
-import { flushTokenRegistry } from './pg/flushers/tokens.js'; // ✅ ADDED
-
-// ✅ Gov Params Helper (for timestamp calculation)
-import { calculateDepositEnd, calculateVotingEnd } from '../utils/gov_params.js';
-import { buildTokenRegistryRow, inferTokenType, normalizeIbcDenom } from '../utils/token-registry.js';
-import type { TokenRegistrySource, TokenRegistryType } from '../utils/token-registry.js';
-import { deriveConsensusAddress, normalizePubkey } from '../utils/crypto.js';
-// ✅ Validator ABCI Helper (for lazy discovery)
-import { fetchAllValidatorsViaAbci } from './pg/helpers/staking_abci.js';
-// ✅ Gov ABCI Helper (for fetching proposal data via RPC)
-import { fetchProposalDataViaAbci } from './pg/helpers/gov_abci.js';
-// ✅ WASM ABCI Helper (for fetching contract data via RPC)
+import { flushTokenRegistry } from './pg/flushers/tokens.js';
 import { fetchContractInfoViaAbci } from './pg/helpers/wasm_abci.js';
-// ✅ RPC Client and ProtoRoot for ABCI queries
+
+import {
+  buildTokenRegistryRow,
+  inferTokenType,
+  normalizeIbcDenom
+} from '../utils/token-registry.js';
+import type { TokenRegistrySource, TokenRegistryType } from '../utils/token-registry.js';
 import { createRpcClientFromConfig, RpcClient } from '../rpc/client.js';
 import { decodeAnyWithRoot, loadProtoRoot } from '../decode/dynamicProto.js';
 import { Root } from 'protobufjs';
@@ -413,7 +401,6 @@ export class PostgresSink implements Sink {
   private mode: PostgresMode;
   private rpc: RpcClient | null = null;
   private protoRoot: Root | null = null;
-  private govTimestampsCache = new Map<string, any>();
   private wasmContractsCache = new Map<string, any>();
   private tokenRegistryMetadataCache = new Map<string, TokenRegistryRpcMetadata | null>();
   private isShuttingDown = false;
@@ -425,25 +412,9 @@ export class PostgresSink implements Sink {
   private bufEvents: any[] = [];
   private bufAttrs: any[] = [];
   private bufTransfers: any[] = [];
-  private bufStakeDeleg: any[] = [];
-  private bufStakeDistr: any[] = [];
   private bufWasmExec: any[] = [];
   private bufWasmEvents: any[] = [];
   private bufWasmEventAttrs: any[] = [];
-
-  // ✅ Gov Buffers (Now Used)
-  private bufGovDeposits: any[] = [];
-  private bufGovVotes: any[] = [];
-  private bufGovProposals: any[] = [];
-
-  // ✅ Validator Buffer
-  private bufValidators: any[] = [];
-  private bufValidatorSet: any[] = [];
-  private bufMissedBlocks: any[] = [];
-
-  // ✅ Validator cache for lazy discovery
-  private knownValidatorsHeaders = new Set<string>();
-  private lastValidatorRefreshHeight = 0;
 
   // ✅ IBC Buffer
   private bufIbcPackets: any[] = [];
@@ -453,9 +424,7 @@ export class PostgresSink implements Sink {
   private bufIbcDenoms: any[] = [];
   private bufIbcConnections: any[] = [];
 
-  // ✅ Authz/Feegrant Buffer
-  private bufAuthzGrants: any[] = [];
-  private bufFeeGrants: any[] = [];
+
 
   // ✅ ADDED: Missing Buffers
   private bufBalanceDeltas: any[] = [];
@@ -493,14 +462,9 @@ export class PostgresSink implements Sink {
     events: 5000,
     attrs: 10000,
     transfers: 5000,
-    stakeDeleg: 5000,
-    stakeDistr: 5000,
     wasmExec: 5000,
     wasmEvents: 5000,
     wasmEventAttrs: 5000,
-    govDeposits: 5000,
-    govVotes: 5000,
-    govProposals: 1000,
     validators: 500,
     ibcPackets: 2000,
     ibcChannels: 500,
@@ -520,7 +484,7 @@ export class PostgresSink implements Sink {
   async init(): Promise<void> {
     await createPgPool({ ...this.cfg.pg, applicationName: 'cosmos-indexer' });
 
-    // ✅ Initialize RPC client and protoRoot for ABCI queries (gov timestamps)
+    // ✅ Initialize RPC client and protoRoot for ABCI queries
     if (this.cfg.rpcUrl) {
       this.rpc = createRpcClientFromConfig({
         rpcUrl: this.cfg.rpcUrl,
@@ -816,10 +780,6 @@ export class PostgresSink implements Sink {
       app_hash: b?.block?.header?.app_hash ?? null,
     };
 
-    // ✅ Validator Set & Missed Blocks Extraction
-    const validatorSetRows: any[] = [];
-    const missedBlocksRows: any[] = [];
-
     // ✅ Define ALL row arrays at the top to fix scope issues
     const txRows: any[] = [];
     const msgRows: any[] = [];
@@ -840,14 +800,6 @@ export class PostgresSink implements Sink {
     const wasmEventsRows: any[] = [];
     const wasmEventAttrsRows: any[] = [];
 
-    // ✅ Gov
-    const govVotesRows: any[] = [];
-    const govDepositsRows: any[] = [];
-    const govProposalsRows: any[] = [];
-
-    // ✅ Validator
-    const validatorsRows: any[] = [];
-
     // ✅ IBC
     const ibcPacketsRows: any[] = [];
     const ibcChannelsRows: any[] = [];
@@ -856,16 +808,10 @@ export class PostgresSink implements Sink {
     const ibcDenomsRows: any[] = [];
     const ibcConnectionsRows: any[] = [];
 
-    // ✅ Authz / Feegrant
-    const authzGrantsRows: any[] = [];
-    const feeGrantsRows: any[] = [];
+
 
     // ✅ Tokens (CW20)
     const cw20TransfersRows: any[] = [];
-
-    // ✅ Staking & Distribution
-    const stakeDelegRows: any[] = [];
-    const stakeDistrRows: any[] = [];
 
     // ✅ ADDED: New Local Arrays
     const balanceDeltasRows: any[] = [];
@@ -1105,113 +1051,7 @@ export class PostgresSink implements Sink {
       return added;
     };
 
-    // Initial core registration (no TX hash for genesis/native)
-    registerToken('uzig', 'native', { symbol: 'ZIG', base_denom: 'uzig', decimals: 6 }, null);
-
-    const vSet = blockLine.validator_set;
-    if (vSet?.validators) {
-      for (const v of vSet.validators as any[]) {
-        const cAddr = v.address;
-        validatorSetRows.push({
-          height,
-          consensus_address: cAddr,
-          voting_power: v.voting_power,
-          proposer_priority: v.proposer_priority
-        });
-
-        // ✅ LAZY DISCOVERY: If this validator is unknown, trigger a metadata sync
-        if (this.rpc && this.protoRoot) {
-          // Limit refresh to once per 100 blocks to avoid spamming ABCI
-          if (height > this.lastValidatorRefreshHeight + 100) {
-            this.lastValidatorRefreshHeight = height;
-            fetchAllValidatorsViaAbci(this.rpc, this.protoRoot).then(allVals => {
-              if (allVals.length > 0) {
-                this.bufValidators.push(...allVals.map(val => ({
-                  ...val,
-                  updated_at_height: height,
-                  updated_at_time: time
-                })));
-                for (const val of allVals) {
-                  if (val.consensus_address) this.knownValidatorsHeaders.add(val.consensus_address);
-                }
-              }
-            }).catch(e => log.warn(`[staking] Lazy discovery failed: ${e.message}`));
-          }
-        }
-      }
-    }
-
-    // ✅ GOVERNANCE: Process EndBlock Events for Timestamps and Results
-    // Timestamps like voting_end_time are often only found in EndBlock events, not in transactions.
-    const endEvents = blockLine.block_results?.end_block_events ?? [];
-    for (const ev of endEvents) {
-      const attrs = attrsToPairs(ev.attributes);
-      const pid = findAttr(attrs, 'proposal_id');
-
-      if (pid) {
-        // Handle voting period transitions and timestamp extraction
-        if (ev.type === 'active_proposal' || ev.type === 'proposal_deposit' || ev.type === 'proposal_vote' || ev.type === 'inactive_proposal') {
-          const votingStart = toDateFromTimestamp(findAttr(attrs, 'voting_period_start') || findAttr(attrs, 'voting_start_time'));
-          const votingEnd = toDateFromTimestamp(findAttr(attrs, 'voting_period_end') || findAttr(attrs, 'voting_end_time'));
-          const depositEnd = toDateFromTimestamp(findAttr(attrs, 'deposit_end_time'));
-
-          // ✅ FIX: Calculate timestamps if they are missing but the event implies we are in/entering voting period
-          // 'active_proposal' means it just started. 'proposal_vote' means it's currently active.
-          const needsFallback = (ev.type === 'active_proposal' || ev.type === 'proposal_vote') && !votingStart;
-          const effectiveVotingStart = votingStart || (needsFallback ? time : null);
-          const effectiveVotingEnd = votingEnd || (effectiveVotingStart ? calculateVotingEnd(effectiveVotingStart) : null);
-
-          if (effectiveVotingStart || effectiveVotingEnd || depositEnd) {
-            govProposalsRows.push({
-              proposal_id: BigInt(pid),
-              // If we see voting timestamps or events, it's definitely in voting period or passed it
-              status: (effectiveVotingEnd && effectiveVotingEnd < time) ? 'passed' : (effectiveVotingStart ? 'voting_period' : undefined),
-              voting_start: effectiveVotingStart,
-              voting_end: effectiveVotingEnd,
-              deposit_end: depositEnd
-            } as any);
-          }
-        }
-
-        // ✅ Final Tally Result extraction REMOVED (per user request)
-        // ✅ Execution Result tracking REMOVED (per user request)
-        // ✅ Handle passed/rejected/failed status events
-        if (ev.type === 'proposal_passed' || ev.type === 'submit_proposal_passed') {
-          govProposalsRows.push({
-            proposal_id: BigInt(pid),
-            status: 'passed'
-          } as any);
-        }
-        if (ev.type === 'proposal_rejected' || ev.type === 'submit_proposal_rejected') {
-          govProposalsRows.push({
-            proposal_id: BigInt(pid),
-            status: 'rejected'
-          } as any);
-        }
-        if (ev.type === 'proposal_failed' || ev.type === 'submit_proposal_failed') {
-          govProposalsRows.push({
-            proposal_id: BigInt(pid),
-            status: 'failed'
-          } as any);
-        }
-      }
-    }
-
-    // Missed blocks: look at current block signatures for height-1
-    const signatures = b?.block?.last_commit?.signatures;
-    if (Array.isArray(signatures)) {
-      for (const sig of signatures) {
-        // block_id_flag: 1 = BLOCK_ID_FLAG_ABSENT, 2 = COMMIT, 3 = NIL
-        const isAbsent = sig.block_id_flag === 1 || sig.block_id_flag === 'BLOCK_ID_FLAG_ABSENT';
-        if (isAbsent && sig.validator_address) {
-          missedBlocksRows.push({
-            consensus_address: sig.validator_address,
-            height: height - 1
-          });
-          log.debug(`[uptime] missed block: ${sig.validator_address} at height ${height - 1} `);
-        }
-      }
-    }
+    // 🛡️ INITIAL SYNC: Fetch network parameters (kept)
 
 
     const txs = Array.isArray(blockLine?.txs) ? blockLine.txs : [];
@@ -1277,254 +1117,7 @@ export class PostgresSink implements Sink {
 
         const msgLog = logMap.get(i) || logMap.get(-1); // Fallback to flat log if per-msg missing
 
-        // 🟢 GOVERNANCE LOGIC 🟢
 
-        // 1. VOTE (Simple and Weighted)
-        if (isSuccess && (type === '/cosmos.gov.v1beta1.MsgVote' || type === '/cosmos.gov.v1.MsgVote')) {
-          govVotesRows.push({
-            proposal_id: m.proposal_id,
-            voter: m.voter,
-            option: m.option?.toString() ?? 'VOTE_OPTION_UNSPECIFIED',
-            option_index: 0,
-            weight: "1.0", // ✅ FIX: Simple votes always have 1.0 weight
-            height,
-            tx_hash,
-          });
-          // ✅ ENHANCEMENT: Any vote implies the proposal is in voting period
-          if (m.proposal_id) {
-            govProposalsRows.push({
-              proposal_id: m.proposal_id,
-              status: 'voting_period'
-            } as any);
-          }
-        }
-
-        // 1b. WEIGHTED VOTE
-        if (isSuccess && (type === '/cosmos.gov.v1beta1.MsgVoteWeighted' || type === '/cosmos.gov.v1.MsgVoteWeighted')) {
-          const options = Array.isArray(m.options) ? m.options : [];
-          for (let oi = 0; oi < options.length; oi++) {
-            const opt = options[oi];
-            govVotesRows.push({
-              proposal_id: m.proposal_id,
-              voter: m.voter || m.signer || firstSigner,
-              option: opt.option?.toString() ?? 'VOTE_OPTION_UNSPECIFIED',
-              option_index: oi,
-              weight: opt.weight ?? '1.0', // Weight is a decimal string like "0.5"
-              height,
-              tx_hash,
-            });
-          }
-          // ✅ ENHANCEMENT: Any vote implies the proposal is in voting period
-          if (m.proposal_id) {
-            govProposalsRows.push({
-              proposal_id: m.proposal_id,
-              status: 'voting_period'
-            } as any);
-          }
-        }
-
-        // 2. DEPOSIT
-        if (isSuccess && (type === '/cosmos.gov.v1beta1.MsgDeposit' || type === '/cosmos.gov.v1.MsgDeposit')) {
-          const amounts = Array.isArray(m.amount) ? m.amount : [m.amount];
-          for (const coin of amounts) {
-            if (!coin) continue;
-            registerToken(coin.denom, undefined, {}, tx_hash);
-            govDepositsRows.push({
-              proposal_id: m.proposal_id,
-              depositor: m.depositor || m.signer || firstSigner,
-              amount: coin.amount,
-              denom: coin.denom,
-              height,
-              tx_hash,
-              msg_index: i // Capture message index
-            });
-          }
-
-          // ✅ ENHANCEMENT: Check if deposit triggers voting period
-          const activeEv = msgLog?.events.find((e: any) => e.type === 'proposal_deposit' || e.type === 'active_proposal');
-          const vsAttr = findAttr(attrsToPairs(activeEv?.attributes), 'voting_period_start') ||
-            findAttr(attrsToPairs(activeEv?.attributes), 'voting_start_time');
-          const vsAt = toDateFromTimestamp(vsAttr);
-          const veAttr = findAttr(attrsToPairs(activeEv?.attributes), 'voting_period_end') ||
-            findAttr(attrsToPairs(activeEv?.attributes), 'voting_end_time');
-          const veAt = toDateFromTimestamp(veAttr);
-
-          if ((vsAt || activeEv?.type === 'active_proposal') && m.proposal_id) {
-            // Calculate voting_start/end if not in event
-            const votingStart = vsAt || time;
-            const votingEnd = veAt || calculateVotingEnd(votingStart);
-
-            govProposalsRows.push({
-              proposal_id: BigInt(m.proposal_id),
-              status: 'voting_period',
-              voting_start: votingStart,
-              voting_end: votingEnd,
-            } as any);
-          }
-        }
-
-        // 3. PROPOSAL (Only Success - ID is generated on-chain)
-        if ((type === '/cosmos.gov.v1beta1.MsgSubmitProposal' || type === '/cosmos.gov.v1.MsgSubmitProposal') && isSuccess) {
-          const event = msgLog?.events.find((e: any) => e.type === 'submit_proposal');
-          const pid = findAttr(attrsToPairs(event?.attributes), 'proposal_id');
-
-          if (pid) {
-            const submitter = m.proposer || m.signer || firstSigner;
-            const proposalType = m.content?.['@type'] ??
-              m.content?.type_url ??
-              (Array.isArray(m.messages) && (m.messages[0]?.['@type'] ?? m.messages[0]?.type_url)) ??
-              findAttr(attrsToPairs(event?.attributes), 'proposal_type') ??
-              findAttr(attrsToPairs(event?.attributes), 'proposal_messages')?.split(',').filter(Boolean).pop() ??
-              null;
-
-            // ✅ EXTRACTION: Initial Deposit
-            const initialDeposit = m.initial_deposit ?? m.initialDeposit ?? null;
-
-            // ✅ FIX: Capture Initial Deposit in gov.deposits table
-            if (initialDeposit) {
-              const deposits = Array.isArray(initialDeposit) ? initialDeposit : [initialDeposit];
-              for (const coin of deposits) {
-                if (!coin) continue;
-                registerToken(coin.denom, undefined, {}, tx_hash);
-                govDepositsRows.push({
-                  proposal_id: pid,
-                  depositor: submitter,
-                  amount: coin.amount,
-                  denom: coin.denom,
-                  height,
-                  tx_hash,
-                  msg_index: i // Capture message index to differentiate same-block deposits
-                });
-              }
-            }
-
-            // ✅ EXTRACTION: Changes (for Param Changes or legacy content)
-            // For v1, we store the full messages array. For v1beta1, we try to be specific.
-            const content = m.content || (Array.isArray(m.messages) ? m.messages[0] : null);
-            const changes = m.messages ?? content?.params ?? content?.changes ?? content?.plan ?? content?.msg ?? content?.msgs ?? content ?? null;
-
-            // ✅ EXTRACTION: Timestamps from events (accurate vs block time)
-            const attrs = attrsToPairs(event?.attributes);
-            const eventDepositEnd = toDateFromTimestamp(findAttr(attrs, 'deposit_end_time'));
-            const eventVotingStart = toDateFromTimestamp(findAttr(attrs, 'voting_period_start') || findAttr(attrs, 'voting_start_time'));
-            const eventVotingEnd = toDateFromTimestamp(findAttr(attrs, 'voting_period_end') || findAttr(attrs, 'voting_end_time'));
-
-            // ✅ FIX: Check if proposal entered voting period (from event status or active_proposal event)
-            const proposalStatus = findAttr(attrs, 'proposal_status') || findAttr(attrs, 'status');
-            const isVotingPeriodFromStatus = proposalStatus?.toLowerCase().includes('voting');
-
-            // Also check for active_proposal event in the same tx (initial deposit triggered voting period)
-            const activeEvent = msgLog?.events.find((e: any) => e.type === 'active_proposal');
-            const activeVotingStart = activeEvent
-              ? toDateFromTimestamp(findAttr(attrsToPairs(activeEvent.attributes), 'voting_period_start') ||
-                findAttr(attrsToPairs(activeEvent.attributes), 'voting_start_time'))
-              : null;
-
-            // Determine if proposal is in voting period
-            const isVotingPeriod = !!eventVotingStart || !!activeVotingStart || isVotingPeriodFromStatus || !!activeEvent;
-
-            // ✅ CALCULATION: Fallback timestamps when events don't include them (common in Cosmos SDK v0.47+)
-            const depositEnd = eventDepositEnd || calculateDepositEnd(time);
-
-            // For voting timestamps: use event data if available, otherwise calculate if in voting period
-            let votingStart: Date | null = eventVotingStart || activeVotingStart;
-            let votingEnd: Date | null = eventVotingEnd;
-
-            // If proposal is in voting period but we don't have timestamps, calculate them
-            if (isVotingPeriod && !votingStart) {
-              // When proposal enters voting period immediately, voting_start = submit_time
-              votingStart = time;
-            }
-            if (votingStart && !votingEnd) {
-              votingEnd = calculateVotingEnd(votingStart);
-            }
-
-            govProposalsRows.push({
-              proposal_id: BigInt(pid),
-              submitter,
-              title: m.title ?? m.content?.title ?? content?.title ?? '',
-              summary: m.summary ?? m.content?.description ?? content?.description ?? '',
-              proposal_type: proposalType,
-              submit_time: time,
-              status: isVotingPeriod ? 'voting_period' : 'deposit_period',
-              deposit_end: depositEnd,
-              voting_start: votingStart,
-              voting_end: votingEnd,
-              total_deposit: initialDeposit,
-              changes: changes,
-            });
-          }
-        }
-
-        // 🟢 AUTHZ / FEEGRANT (SUCCESS ONLY) 🟢
-        if (
-          isSuccess &&
-          (type === '/cosmos.authz.v1beta1.MsgGrant' || type === '/cosmos.authz.v1.MsgGrant')
-        ) {
-          const grant = m?.grant ?? {};
-          const auth = grant?.authorization ?? m?.authorization ?? null;
-          const msgTypeUrl = auth?.msg ?? auth?.msg_type_url ?? auth?.['@type'] ?? auth?.type_url ?? null;
-          if (m?.granter && m?.grantee && msgTypeUrl) {
-            authzGrantsRows.push({
-              granter: m.granter,
-              grantee: m.grantee,
-              msg_type_url: msgTypeUrl,
-              expiration: extractExpiration(grant),
-              height,
-              revoked: false,
-            });
-          }
-        }
-
-        if (
-          isSuccess &&
-          (type === '/cosmos.authz.v1beta1.MsgRevoke' || type === '/cosmos.authz.v1.MsgRevoke')
-        ) {
-          if (m?.granter && m?.grantee && m?.msg_type_url) {
-            authzGrantsRows.push({
-              granter: m.granter,
-              grantee: m.grantee,
-              msg_type_url: m.msg_type_url,
-              expiration: null,
-              height,
-              revoked: true,
-            });
-          }
-        }
-
-        if (
-          isSuccess &&
-          (type === '/cosmos.feegrant.v1beta1.MsgGrantAllowance' || type === '/cosmos.feegrant.v1.MsgGrantAllowance')
-        ) {
-          const allowance = m?.allowance ?? null;
-          if (m?.granter && m?.grantee) {
-            feeGrantsRows.push({
-              granter: m.granter,
-              grantee: m.grantee,
-              allowance,
-              expiration: extractExpiration(allowance),
-              height,
-              revoked: false,
-            });
-          }
-        }
-
-        if (
-          isSuccess &&
-          (type === '/cosmos.feegrant.v1beta1.MsgRevokeAllowance' ||
-            type === '/cosmos.feegrant.v1.MsgRevokeAllowance')
-        ) {
-          if (m?.granter && m?.grantee) {
-            feeGrantsRows.push({
-              granter: m.granter,
-              grantee: m.grantee,
-              allowance: null,
-              expiration: null,
-              height,
-              revoked: true,
-            });
-          }
-        }
 
         // 🟢 WASM REGISTRY (STORE/INSTANTIATE) 🟢
         if (
@@ -1962,114 +1555,6 @@ export class PostgresSink implements Sink {
             funds: null, msg: tryParseJson(m?.msg), success: code === 0,
             error: code === 0 ? null : (log_summary),
             gas_used, height
-          });
-        }
-
-        // 🟢 STAKING LOGIC 🟢
-        if (isSuccess && (type === '/cosmos.staking.v1beta1.MsgCreateValidator' || type === '/cosmos.staking.v1beta1.MsgEditValidator')) {
-          const pubkey = m.pubkey?.value || m.consensus_pubkey?.value;
-          const consensusPubKey = pubkey ? normalizePubkey(typeof pubkey === 'string' ? pubkey : Buffer.from(pubkey).toString('base64')) : null;
-          const consensusAddress = consensusPubKey ? deriveConsensusAddress(consensusPubKey) : null;
-
-          validatorsRows.push({
-            operator_address: m.validator_address || m.operator_address,
-            consensus_address: consensusAddress,
-            consensus_pubkey: consensusPubKey,
-            moniker: m.description?.moniker,
-            website: m.description?.website,
-            details: m.description?.details,
-            commission_rate: parseDec(m.commission?.rate || m.commission_rate),
-            max_commission_rate: parseDec(m.commission?.max_rate),
-            max_change_rate: parseDec(m.commission?.max_change_rate),
-            min_self_delegation: m.min_self_delegation,
-            status: null,
-            updated_at_height: height,
-            updated_at_time: time
-          });
-        }
-
-        if (isSuccess && (type === '/cosmos.staking.v1beta1.MsgDelegate' || type === '/cosmos.staking.v1beta1.MsgUndelegate')) {
-          const coin = m.amount;
-          const isUndelegate = type.includes('Undelegate');
-          registerToken(coin?.denom, undefined, {}, tx_hash);
-
-          // ✅ FIX: Extract completion_time from unbond event for undelegations
-          let completionTime: Date | null = null;
-          if (isUndelegate && msgLog) {
-            const unbondEvent = msgLog.events.find((e: any) => e.type === 'unbond');
-            if (unbondEvent) {
-              const ctStr = findAttr(attrsToPairs(unbondEvent.attributes), 'completion_time');
-              completionTime = toDateFromTimestamp(ctStr);
-            }
-          }
-
-          stakeDelegRows.push({
-            height, tx_hash, msg_index: i,
-            event_type: isUndelegate ? 'undelegate' : 'delegate',
-            delegator_address: m.delegator_address,
-            validator_src: null, // Only applies to redelegate
-            validator_dst: m.validator_address,
-            denom: coin?.denom, amount: coin?.amount,
-            completion_time: completionTime
-          });
-        }
-        if (type === '/cosmos.staking.v1beta1.MsgBeginRedelegate' && isSuccess) {
-          const coin = m.amount;
-          registerToken(coin?.denom, undefined, {}, tx_hash);
-
-          // ✅ FIX: Extract completion_time from redelegate event
-          let completionTime: Date | null = null;
-          if (msgLog) {
-            const redelegateEvent = msgLog.events.find((e: any) => e.type === 'redelegate');
-            if (redelegateEvent) {
-              const ctStr = findAttr(attrsToPairs(redelegateEvent.attributes), 'completion_time');
-              completionTime = toDateFromTimestamp(ctStr);
-            }
-          }
-
-          stakeDelegRows.push({
-            height, tx_hash, msg_index: i,
-            event_type: 'redelegate',
-            delegator_address: m.delegator_address,
-            validator_src: m.validator_src_address,
-            validator_dst: m.validator_dst_address,
-            denom: coin?.denom, amount: coin?.amount,
-            completion_time: completionTime
-          });
-        }
-
-        // 🟢 DISTRIBUTION LOGIC 🟢
-        if (type === '/cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward' && isSuccess) {
-          const event = msgLog?.events.find((e: any) => e.type === 'withdraw_rewards');
-          const eventAttrs = attrsToPairs(event?.attributes);
-          const amountStr = findAttr(eventAttrs, 'amount');
-          const coins = parseCoins(amountStr);
-
-          // ✅ FIX: Try to extract withdraw_address from event or use delegator_address as fallback
-          // Note: If user hasn't set a custom withdraw address, it defaults to delegator_address
-          const withdrawAddr = findAttr(eventAttrs, 'withdraw_address') ||
-            findAttr(eventAttrs, 'receiver') ||
-            m.delegator_address; // Fallback to delegator (default behavior)
-
-          for (const coin of coins) {
-            registerToken(coin.denom, undefined, {}, tx_hash);
-            stakeDistrRows.push({
-              height, tx_hash, msg_index: i,
-              event_type: 'withdraw_reward',
-              delegator_address: m.delegator_address,
-              validator_address: m.validator_address,
-              denom: coin.denom, amount: coin.amount,
-              withdraw_address: withdrawAddr
-            });
-          }
-        }
-        if (type === '/cosmos.distribution.v1beta1.MsgSetWithdrawAddress' && isSuccess) {
-          stakeDistrRows.push({
-            height, tx_hash, msg_index: i,
-            event_type: 'set_withdraw_address',
-            delegator_address: m.delegator_address,
-            withdraw_address: m.withdraw_address,
-            validator_address: null, denom: null, amount: null
           });
         }
 
@@ -2894,17 +2379,12 @@ export class PostgresSink implements Sink {
     return {
       blockRow, txRows, msgRows, evRows, attrRows,
       transfersRows, wasmExecRows, wasmEventsRows,
-      govVotesRows, govDepositsRows, govProposalsRows, // 👈 Returning Gov Data
-      stakeDelegRows, stakeDistrRows, // 👈 Returning Staking Data
-      validatorsRows, validatorSetRows, missedBlocksRows, // 👈 Returning Validator Data
       ibcPacketsRows, // 👈 Returning IBC Data
       ibcChannelsRows,
       ibcTransfersRows,
       ibcClientsRows,
       ibcDenomsRows,
       ibcConnectionsRows,
-      authzGrantsRows,
-      feeGrantsRows,
       cw20TransfersRows,
       factoryDenomsRows, dexPoolsRows, dexSwapsRows, dexLiquidityRows, wrapperSettingsRows, wrapperEventsRows,
       balanceDeltasRows, wasmCodesRows, wasmContractsRows, wasmMigrationsRows, wasmAdminChangesRows, networkParamsRows,
@@ -2941,15 +2421,6 @@ export class PostgresSink implements Sink {
     this.bufWasmEvents.push(...data.wasmEventsRows);
     this.bufWasmExec.push(...data.wasmExecRows);
 
-    // ✅ Gov (Pushing to Buffers)
-    this.bufGovVotes.push(...data.govVotesRows);
-    this.bufGovDeposits.push(...data.govDepositsRows);
-    this.bufGovProposals.push(...data.govProposalsRows);
-
-    // ✅ Staking (Pushing to Buffers)
-    this.bufStakeDeleg.push(...data.stakeDelegRows);
-    this.bufStakeDistr.push(...data.stakeDistrRows);
-
     // ✅ ADDED: New Buffers Persistence
     this.bufBalanceDeltas.push(...data.balanceDeltasRows);
     this.bufWasmCodes.push(...data.wasmCodesRows);
@@ -2959,11 +2430,6 @@ export class PostgresSink implements Sink {
     this.bufWasmInstantiateConfigs.push(...data.wasmInstantiateConfigsRows);
     this.bufNetworkParams.push(...data.networkParamsRows);
 
-    // ✅ Validator (Pushing to Buffer)
-    this.bufValidators.push(...data.validatorsRows);
-    this.bufValidatorSet.push(...data.validatorSetRows);
-    this.bufMissedBlocks.push(...data.missedBlocksRows);
-
     // ✅ IBC (Pushing to Buffer)
     this.bufIbcPackets.push(...data.ibcPacketsRows);
     this.bufIbcChannels.push(...data.ibcChannelsRows);
@@ -2971,10 +2437,6 @@ export class PostgresSink implements Sink {
     this.bufIbcClients.push(...data.ibcClientsRows);
     this.bufIbcDenoms.push(...data.ibcDenomsRows);
     this.bufIbcConnections.push(...data.ibcConnectionsRows);
-
-    // ✅ Authz / Feegrant (Pushing to Buffer)
-    this.bufAuthzGrants.push(...data.authzGrantsRows);
-    this.bufFeeGrants.push(...data.feeGrantsRows);
 
     // ✅ Tokens (CW20) (Pushing to Buffer)
     this.bufCw20Transfers.push(...data.cw20TransfersRows);
@@ -2988,13 +2450,11 @@ export class PostgresSink implements Sink {
     this.bufFactorySupplyEvents.push(...data.factorySupplyEventsRows);
 
     const zCount = this.bufFactoryDenoms.length + this.bufDexPools.length + this.bufDexSwaps.length + this.bufDexLiquidity.length;
-    const gCount = this.bufGovVotes.length + this.bufGovDeposits.length;
 
     const needFlush =
       this.bufBlocks.length >= this.batchSizes.blocks ||
       this.bufTxs.length >= this.batchSizes.txs ||
-      zCount >= this.batchSizes.zigchain ||
-      gCount >= this.batchSizes.govVotes;
+      zCount >= this.batchSizes.zigchain;
 
     if (needFlush) {
       log.debug(`flush trigger: blocks=${this.bufBlocks.length}`);
@@ -3024,11 +2484,6 @@ export class PostgresSink implements Sink {
       wasmEventAttrs: this.bufWasmEventAttrs,
       wasmExec: this.bufWasmExec,
       wasmEvents: this.bufWasmEvents,
-      govVotes: this.bufGovVotes,
-      govDeposits: this.bufGovDeposits,
-      govProposals: this.bufGovProposals,
-      stakeDeleg: this.bufStakeDeleg,
-      stakeDistr: this.bufStakeDistr,
       balanceDeltas: this.bufBalanceDeltas,
       wasmCodes: this.bufWasmCodes,
       wasmContracts: this.bufWasmContracts,
@@ -3036,17 +2491,12 @@ export class PostgresSink implements Sink {
       wasmAdminChanges: this.bufWasmAdminChanges,
       wasmInstantiateConfigs: this.bufWasmInstantiateConfigs,
       networkParams: this.bufNetworkParams,
-      validators: this.bufValidators,
-      validatorSet: this.bufValidatorSet,
-      missedBlocks: this.bufMissedBlocks,
       ibcPackets: this.bufIbcPackets,
       ibcChannels: this.bufIbcChannels,
       ibcTransfers: this.bufIbcTransfers,
       ibcClients: this.bufIbcClients,
       ibcDenoms: this.bufIbcDenoms,
       ibcConnections: this.bufIbcConnections,
-      authzGrants: this.bufAuthzGrants,
-      feeGrants: this.bufFeeGrants,
       cw20Transfers: this.bufCw20Transfers,
       wasmSwaps: this.bufWasmSwaps,
       tokenRegistry: this.bufTokenRegistry, // ✅ NEW
@@ -3059,14 +2509,11 @@ export class PostgresSink implements Sink {
     this.bufFactoryDenoms = []; this.bufDexPools = []; this.bufDexSwaps = []; this.bufDexLiquidity = [];
     this.bufWrapperSettings = []; this.bufWrapperEvents = [];
     this.bufWasmExec = []; this.bufWasmEvents = []; this.bufWasmEventAttrs = [];
-    this.bufGovVotes = []; this.bufGovDeposits = []; this.bufGovProposals = [];
-    this.bufStakeDeleg = []; this.bufStakeDistr = [];
     this.bufBalanceDeltas = []; this.bufWasmCodes = []; this.bufWasmContracts = []; this.bufWasmMigrations = [];
     this.bufWasmAdminChanges = []; this.bufWasmInstantiateConfigs = []; this.bufNetworkParams = [];
-    this.bufValidators = []; this.bufValidatorSet = []; this.bufMissedBlocks = [];
     this.bufIbcPackets = []; this.bufIbcChannels = []; this.bufIbcTransfers = [];
     this.bufIbcClients = []; this.bufIbcDenoms = []; this.bufIbcConnections = [];
-    this.bufAuthzGrants = []; this.bufFeeGrants = []; this.bufCw20Transfers = [];
+    this.bufCw20Transfers = [];
     this.bufWasmSwaps = []; this.bufTokenRegistry = []; this.bufUnknownMsgs = [];
     this.bufFactorySupplyEvents = [];
 
@@ -3102,60 +2549,9 @@ export class PostgresSink implements Sink {
       await flushAttrs(client, snapshot.attrs);
       await flushTransfers(client, snapshot.transfers);
 
-      // 2. Modules (WASM & Gov)
-      await flushGovVotes(client, snapshot.govVotes);
-      await flushGovDeposits(client, snapshot.govDeposits);
+      // 2. Modules (WASM)
 
-      // ✅ ENHANCEMENT: Fetch accurate timestamps via ABCI for new proposals (with caching)
-      if (snapshot.govProposals.length > 0 && this.rpc && this.protoRoot) {
-        const uniqueProposalIds = [...new Set(snapshot.govProposals.map(p => p.proposal_id))];
-        for (const pid of uniqueProposalIds) {
-          const pidStr = pid.toString();
-          try {
-            // Check cache first to avoid redundant RPC calls
-            let abciData = this.govTimestampsCache.get(pidStr);
-
-            if (!abciData) {
-              abciData = await fetchProposalDataViaAbci(this.rpc, this.protoRoot, pidStr);
-              if (abciData) {
-                this.govTimestampsCache.set(pidStr, abciData);
-              }
-            }
-
-            if (abciData) {
-              // Update all proposal rows for this ID with accurate data
-              for (const row of snapshot.govProposals) {
-                if (row.proposal_id === pid) {
-                  // RPC data is authoritative for lifecycle and metadata
-                  if (abciData.submit_time) row.submit_time = abciData.submit_time;
-                  if (abciData.deposit_end_time) row.deposit_end = abciData.deposit_end_time;
-                  if (abciData.voting_start_time) row.voting_start = abciData.voting_start_time;
-                  if (abciData.voting_end_time) row.voting_end = abciData.voting_end_time;
-
-                  // fallback for title/summary if missed from message
-                  if (abciData.title && !row.title) row.title = abciData.title;
-                  if (abciData.summary && !row.summary) row.summary = abciData.summary;
-                }
-              }
-            }
-          } catch (err: any) {
-            log.warn(`[flush] Failed to fetch ABCI timestamps for proposal ${pid}: ${err.message}`);
-          }
-        }
-      }
-
-      await upsertGovProposals(client, snapshot.govProposals);
-
-      await flushAuthzGrants(client, snapshot.authzGrants);
-      await flushFeeGrants(client, snapshot.feeGrants);
       await flushCw20Transfers(client, snapshot.cw20Transfers);
-
-      await flushStakeDeleg(client, snapshot.stakeDeleg);
-      await flushStakeDistr(client, snapshot.stakeDistr);
-
-      await upsertValidators(client, snapshot.validators);
-      await execBatchedInsert(client, 'core.validator_set', ['height', 'consensus_address', 'voting_power', 'proposer_priority'], snapshot.validatorSet, 'ON CONFLICT (height, consensus_address) DO NOTHING');
-      await execBatchedInsert(client, 'core.validator_missed_blocks', ['consensus_address', 'height'], snapshot.missedBlocks, 'ON CONFLICT (consensus_address, height) DO NOTHING');
 
       // IBC Data
       if (snapshot.ibcPackets.length > 0 || snapshot.ibcTransfers.length > 0) {
@@ -3276,11 +2672,6 @@ export class PostgresSink implements Sink {
       this.bufWasmEventAttrs = [...snapshot.wasmEventAttrs, ...this.bufWasmEventAttrs];
       this.bufWasmExec = [...snapshot.wasmExec, ...this.bufWasmExec];
       this.bufWasmEvents = [...snapshot.wasmEvents, ...this.bufWasmEvents];
-      this.bufGovVotes = [...snapshot.govVotes, ...this.bufGovVotes];
-      this.bufGovDeposits = [...snapshot.govDeposits, ...this.bufGovDeposits];
-      this.bufGovProposals = [...snapshot.govProposals, ...this.bufGovProposals];
-      this.bufStakeDeleg = [...snapshot.stakeDeleg, ...this.bufStakeDeleg];
-      this.bufStakeDistr = [...snapshot.stakeDistr, ...this.bufStakeDistr];
       this.bufBalanceDeltas = [...snapshot.balanceDeltas, ...this.bufBalanceDeltas];
       this.bufWasmCodes = [...snapshot.wasmCodes, ...this.bufWasmCodes];
       this.bufWasmContracts = [...snapshot.wasmContracts, ...this.bufWasmContracts];
@@ -3288,17 +2679,13 @@ export class PostgresSink implements Sink {
       this.bufWasmAdminChanges = [...snapshot.wasmAdminChanges, ...this.bufWasmAdminChanges];
       this.bufWasmInstantiateConfigs = [...snapshot.wasmInstantiateConfigs, ...this.bufWasmInstantiateConfigs];
       this.bufNetworkParams = [...snapshot.networkParams, ...this.bufNetworkParams];
-      this.bufValidators = [...snapshot.validators, ...this.bufValidators];
-      this.bufValidatorSet = [...snapshot.validatorSet, ...this.bufValidatorSet];
-      this.bufMissedBlocks = [...snapshot.missedBlocks, ...this.bufMissedBlocks];
       this.bufIbcPackets = [...snapshot.ibcPackets, ...this.bufIbcPackets];
       this.bufIbcChannels = [...snapshot.ibcChannels, ...this.bufIbcChannels];
       this.bufIbcTransfers = [...snapshot.ibcTransfers, ...this.bufIbcTransfers];
       this.bufIbcClients = [...snapshot.ibcClients, ...this.bufIbcClients];
       this.bufIbcDenoms = [...snapshot.ibcDenoms, ...this.bufIbcDenoms];
       this.bufIbcConnections = [...snapshot.ibcConnections, ...this.bufIbcConnections];
-      this.bufAuthzGrants = [...snapshot.authzGrants, ...this.bufAuthzGrants];
-      this.bufFeeGrants = [...snapshot.feeGrants, ...this.bufFeeGrants];
+
       this.bufCw20Transfers = [...snapshot.cw20Transfers, ...this.bufCw20Transfers];
       this.bufTokenRegistry = [...snapshot.tokenRegistry, ...this.bufTokenRegistry];
 

@@ -14,12 +14,8 @@ CREATE TABLE IF NOT EXISTS util.height_part_ranges (
 INSERT INTO util.height_part_ranges (schema_name, table_name, range_size) VALUES
  ('core', 'blocks', 500000), ('core', 'transactions', 500000), ('core', 'messages', 500000),
  ('core', 'events', 100000),  -- ✅ 1 lakh blocks for easier archival
- ('core', 'validator_set', 500000), ('core', 'validator_missed_blocks', 500000),
  ('core', 'network_params', 500000), ('core', 'event_attrs', 100000),
  ('bank', 'transfers', 500000), ('bank', 'balance_deltas', 500000),
- ('stake', 'delegation_events', 500000), ('stake', 'distribution_events', 500000),
- ('gov', 'deposits', 500000), ('gov', 'votes', 500000),
- ('authz_feegrant', 'authz_grants', 500000), ('authz_feegrant', 'fee_grants', 500000),
  ('tokens', 'cw20_transfers', 500000),
  ('wasm', 'executions', 500000), ('wasm', 'events', 500000),
  ('wasm', 'event_attrs', 500000), ('wasm', 'contract_migrations', 500000),
@@ -34,12 +30,8 @@ ON CONFLICT (schema_name, table_name) DO UPDATE SET range_size = EXCLUDED.range_
 DELETE FROM util.height_part_ranges
 WHERE (schema_name, table_name) NOT IN (
     ('core', 'blocks'), ('core', 'transactions'), ('core', 'messages'), ('core', 'events'),
-    ('core', 'validator_set'), ('core', 'validator_missed_blocks'),
     ('core', 'network_params'), ('core', 'event_attrs'),
     ('bank', 'transfers'), ('bank', 'balance_deltas'),
-    ('stake', 'delegation_events'), ('stake', 'distribution_events'),
-    ('gov', 'deposits'), ('gov', 'votes'),
-    ('authz_feegrant', 'authz_grants'), ('authz_feegrant', 'fee_grants'),
     ('tokens', 'cw20_transfers'),
     ('wasm', 'executions'), ('wasm', 'events'), ('wasm', 'event_attrs'),
     ('wasm', 'contract_migrations'),

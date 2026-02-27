@@ -35,25 +35,8 @@ BEGIN
   END IF;
 END $$;
 
--- GOV: Voter index for vote lookups
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'gov' AND table_name = 'votes') THEN
-    -- 🔴 HIGH: Filter votes by voter address
-    CREATE INDEX IF NOT EXISTS idx_gov_votes_voter ON gov.votes (voter, proposal_id DESC);
-  END IF;
-END $$;
 
--- AUTHZ/FEEGRANT: Granter indexes (only grantee existed before)
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'authz_feegrant' AND table_name = 'authz_grants') THEN
-    CREATE INDEX IF NOT EXISTS idx_authz_grants_granter ON authz_feegrant.authz_grants (granter, height DESC);
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'authz_feegrant' AND table_name = 'fee_grants') THEN
-    CREATE INDEX IF NOT EXISTS idx_fee_grants_granter ON authz_feegrant.fee_grants (granter, height DESC);
-  END IF;
-END $$;
+
 
 -- WASM: Contract lookup indexes
 DO $$
@@ -75,13 +58,6 @@ ALTER TABLE bank.balances_current SET (
     autovacuum_vacuum_scale_factor = 0.05,  -- Vacuum after 5% dead rows (default: 20%)
     autovacuum_analyze_scale_factor = 0.05,
     autovacuum_vacuum_threshold = 50        -- Minimum 50 dead rows to trigger
-);
-
--- stake.delegations_current: Same issue
-ALTER TABLE stake.delegations_current SET (
-    autovacuum_vacuum_scale_factor = 0.05,
-    autovacuum_analyze_scale_factor = 0.05,
-    autovacuum_vacuum_threshold = 20
 );
 
 -- core.indexer_progress: Updated every flush

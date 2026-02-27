@@ -9,10 +9,8 @@ import { createTxDecodePool } from './decode/txPool.ts';
 import { createSink } from './sink/index.ts';
 import { closePgPool, createPgPool, getPgPool } from './db/pg.ts';
 import { getProgress } from './db/progress.ts';
-import { upsertValidators } from './sink/pg/flushers/validators.ts';
 import { insertWrapperSettings } from './sink/pg/inserters/zigchain.ts';
 import { insertTokenRegistry } from './sink/pg/inserters/tokens.ts';
-import { fetchAllValidatorsViaAbci } from './sink/pg/helpers/staking_abci.ts';
 import { loadProtoRoot, decodeAnyWithRoot } from './decode/dynamicProto.ts';
 import { base64ToBytes } from './utils/bytes.ts';
 import { buildTokenRegistryRow } from './utils/token-registry.js';
@@ -143,37 +141,6 @@ async function main() {
     });
     await sink.init();
 
-    // 🛡️ INITIAL SYNC: Fetch validators on startup (uses unified helper)
-    if (cfg.sinkKind === 'postgres') {
-      try {
-        log.info('[start] syncing staking validators…');
-        const protoRoot = await loadProtoRoot(protoDir);
-        const pool = getPgPool();
-        const client = await pool.connect();
-        try {
-          const validatorRows = await fetchAllValidatorsViaAbci(rpc, protoRoot);
-          if (validatorRows.length > 0) {
-            log.info(`[start] found ${validatorRows.length} staking validators`);
-            const rows = validatorRows.map(v => ({
-              ...v,
-              updated_at_height: startFrom,
-              updated_at_time: new Date(),
-            }));
-            await client.query('BEGIN');
-            await client.query('DELETE FROM core.validators');
-            await upsertValidators(client, rows);
-            await client.query('COMMIT');
-            log.info(`[start] synced ${rows.length} validators`);
-          } else {
-            log.warn('[start] no staking validators found via RPC; starting with empty/stale metadata');
-          }
-        } finally {
-          client.release();
-        }
-      } catch (err) {
-        log.warn('[start] validator sync failed:', err instanceof Error ? err.message : String(err));
-      }
-    }
 
     // 🛡️ INITIAL SYNC: Fetch network parameters
     try {
@@ -202,19 +169,7 @@ async function main() {
               const params = decoded.params || decoded.voting_params || decoded.tally_params || decoded.deposit_params || decoded;
               if (params) {
                 // ✅ ENHANCEMENT: Update governance parameters helper for accurate fallbacks
-                if (mod.name === 'gov') {
-                  try {
-                    const { updateGovParams, parseDurationToMs } = await import('./utils/gov_params.js');
-                    updateGovParams({
-                      maxDepositPeriodMs: parseDurationToMs(params.max_deposit_period) ?? undefined,
-                      votingPeriodMs: parseDurationToMs(params.voting_period) ?? undefined,
-                      expeditedVotingPeriodMs: parseDurationToMs(params.expedited_voting_period) ?? undefined,
-                    });
-                    log.info(`[start] synchronized gov params: maxDeposit=${params.max_deposit_period}, voting=${params.voting_period}`);
-                  } catch (e) {
-                    log.warn(`[start] failed to update gov params helper: ${e}`);
-                  }
-                }
+
 
                 rows.push({
                   height: startFrom,
