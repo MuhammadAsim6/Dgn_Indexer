@@ -67,6 +67,13 @@ import { flushWasmSwaps } from './pg/flushers/wasm_swaps.js';
 import { flushTokenRegistry } from './pg/flushers/tokens.js';
 import { fetchContractInfoViaAbci } from './pg/helpers/wasm_abci.js';
 
+// ✅ Phase 1 DEX Foundation Inserters
+import { insertDexPools } from './pg/inserters/dex_pools.js';
+import { insertDexWallets } from './pg/inserters/dex_wallets.js';
+import { insertDexIbcTokens } from './pg/inserters/dex_ibc_tokens.js';
+// ✅ Phase 2 DEX Trades Inserter
+import { insertDexTrades } from './pg/inserters/dex_trades.js';
+
 import {
   buildTokenRegistryRow,
   inferTokenType,
@@ -453,6 +460,11 @@ export class PostgresSink implements Sink {
   // ✅ Zigchain Factory Supply Tracking
   private bufFactorySupplyEvents: any[] = [];
 
+  // ✅ Phase 1: DEX Foundation Buffers
+  private bufDexFoundationPools: any[] = [];
+  private bufDexFoundationWallets: any[] = [];
+  private bufDexFoundationIbcTokens: any[] = [];
+
   private batchSizes = {
     blocks: 1000,
     txs: 2000,
@@ -828,6 +840,12 @@ export class PostgresSink implements Sink {
     const factorySupplyEventsRows: any[] = [];
     const wrapperEventsRows: any[] = [];
 
+    // ✅ Phase 1: DEX Foundation local row arrays (returned from extractRows, buffered in persistBlockBuffered)
+    // Using local arrays (NOT this.buf*) so this pattern is safe inside nested helper functions.
+    const dexFoundationPoolsRows: any[] = [];
+    const dexFoundationWalletsRows: any[] = [];
+    const dexIbcTokensRows: any[] = [];
+
     // 🟢 TOKEN REGISTRY HELPER 🟢
     function registerToken(
       denom: unknown,
@@ -968,6 +986,9 @@ export class PostgresSink implements Sink {
           return 0;
         }
 
+        // ✅ Phase 1: Capture transfer endpoint as a wallet (arrow fn has closure access)
+        dexFoundationWalletsRows.push({ address: acc, first_seen_height: height, first_seen_at: time });
+
         const amountStr = findAttr(attrsPairs, 'amount');
         const coins = parseCoins(amountStr);
         let added = 0;
@@ -989,6 +1010,7 @@ export class PostgresSink implements Sink {
       }
       return 0;
     };
+
 
     const extractFactorySupplyFromEvent = (
       evType: string,
@@ -1076,6 +1098,15 @@ export class PostgresSink implements Sink {
         if (derived) signers = derived;
       }
       const firstSigner = Array.isArray(signers) && signers.length ? signers[0] : null;
+
+      // ✅ Phase 1 FIX: Record tx signer into local dexFoundationWalletsRows (pure-extract pattern)
+      if (firstSigner) {
+        dexFoundationWalletsRows.push({
+          address: firstSigner,
+          first_seen_height: height,
+          first_seen_at: time,
+        });
+      }
 
       txRows.push({
         tx_hash, height, tx_index, code, gas_wanted, gas_used, fee, memo, signers, raw_tx, log_summary, time
@@ -1449,6 +1480,20 @@ export class PostgresSink implements Sink {
               block_height: height,
               tx_hash: tx_hash
             });
+            dexFoundationPoolsRows.push({
+              pair_contract: poolId,
+              base_denom: m.base?.denom ?? null,
+              quote_denom: m.quote?.denom ?? null,
+              lp_token_denom: lpToken ?? null,
+              pair_id: pairId ?? null,
+              signer: m.creator ?? null,
+              created_height: height,
+              created_tx_hash: tx_hash ?? null,
+            });
+            // ✅ Phase 1 FIX: Pool creator is also a wallet
+            if (m.creator) {
+              dexFoundationWalletsRows.push({ address: m.creator, first_seen_height: height, first_seen_at: time });
+            }
             registerToken(m.base?.denom, undefined, {}, tx_hash);
             registerToken(m.quote?.denom, undefined, {}, tx_hash);
             registerToken(lpToken, undefined, {}, tx_hash);
@@ -1504,7 +1549,8 @@ export class PostgresSink implements Sink {
               amount_0: m.base?.amount || evBaseAmount || null,
               amount_1: m.quote?.amount || evQuoteAmount || null,
               shares_minted_burned: m.lptoken?.amount || evLpAmount || null,
-              block_height: height
+              block_height: height,
+              timestamp: time  // ✅ Phase 2 FIX: use block time, not ingestion time
             });
             registerToken(m.base?.denom, undefined, {}, tx_hash);
             registerToken(m.quote?.denom, undefined, {}, tx_hash);
@@ -1820,35 +1866,52 @@ export class PostgresSink implements Sink {
             }
 
             if (sender && (offerAmount || isNativeSwap)) {
-
-              // ✅ Compute analytics columns with NaN validation
-              const offerNum = parseFloat(offerAmount || '0');
-              const returnNum = parseFloat(returnAmount || '0');
-              const spreadNum = parseFloat(spreadAmount || '0');
-              const commissionNum = parseFloat(commissionAmount || '0');
-              const makerFeeNum = parseFloat(makerFeeAmount || '0');
-              const feeShareNum = parseFloat(feeShareAmount || '0');
+              // ✅ FIX A+D+C: BigInt-safe, direction-aware price & fee calculations
+              // Amounts are stored as strings via toBigIntStr() — we use BigInt for math.
+              const offerBig = (() => { try { return BigInt(offerAmount?.replace(/\D/g, '') || '0'); } catch { return 0n; } })();
+              const returnBig = (() => { try { return BigInt(returnAmount?.replace(/\D/g, '') || '0'); } catch { return 0n; } })();
+              const spreadBig = (() => { try { return BigInt(spreadAmount?.replace(/\D/g, '') || '0'); } catch { return 0n; } })();
+              const commissionBig = (() => { try { return BigInt(commissionAmount?.replace(/\D/g, '') || '0'); } catch { return 0n; } })();
+              const makerFeeBig = (() => { try { return BigInt(makerFeeAmount?.replace(/\D/g, '') || '0'); } catch { return 0n; } })();
+              const feeShareBig = (() => { try { return BigInt(feeShareAmount?.replace(/\D/g, '') || '0'); } catch { return 0n; } })();
 
               // Generate sorted pair_id for consistent pair identification
               const pairId = offerAsset && askAsset
                 ? [offerAsset, askAsset].sort().join('-')
                 : null;
 
-              // Effective price: return_amount / offer_amount (with NaN check)
-              const effectivePrice = offerNum > 0 && !isNaN(returnNum)
-                ? returnNum / offerNum
-                : null;
+              // ✅ FIX A+D: effective_price = return/offer (ask-per-offer-unit), always.
+              // Direction heuristic via alphabetical pair_id removed — it is NOT a reliable
+              // proxy for pool base/quote. Direction-aware price_in_quote lives in dex_trades.ts
+              // where the real pool base_token_id is resolved via SQL.
+              // FIX D: result is a decimal STRING, never cast through JS Number.
+              // PostgreSQL NUMERIC(40,18) accepts '"0.000012340000000000"' natively.
+              const PRICE_SCALE = 1_000_000_000_000_000_000n; // 10^18
+              let effectivePrice: string | null = null;
+              if (offerBig > 0n && returnBig > 0n) {
+                const quotient = (returnBig * PRICE_SCALE) / offerBig;
+                const intPart = quotient / PRICE_SCALE;
+                const fracPart = quotient % PRICE_SCALE;
+                effectivePrice = `${intPart}.${fracPart.toString().padStart(18, '0')}`;
+              }
 
-              // Price impact (slippage %): (spread_amount / offer_amount) * 100 (with NaN check)
-              const priceImpact = offerNum > 0 && !isNaN(spreadNum)
-                ? (spreadNum / offerNum) * 100
-                : null;
+              // ✅ FIX B (documented limitation): spread_ratio = spread / offer, in basis points.
+              // NOT vs. pre-trade spot price (unavailable from chain events).
+              // FIX D: pure BigInt — stored as integer BPS string, no float conversion.
+              // FIX E: spreadAmount === '0' is preserved as '0', not silently dropped to NULL.
+              let spreadRatioBps: string | null = null;
+              if (spreadAmount !== null && spreadAmount !== undefined) {
+                spreadRatioBps = offerBig > 0n
+                  ? ((spreadBig * 10_000n) / offerBig).toString()
+                  : null;
+              }
 
-              // Total fee: sum of all fees (with NaN check)
-              const feeSum = (isNaN(commissionNum) ? 0 : commissionNum) +
-                (isNaN(makerFeeNum) ? 0 : makerFeeNum) +
-                (isNaN(feeShareNum) ? 0 : feeShareNum);
-              const totalFee = feeSum > 0 ? feeSum.toString() : '0';
+              // ✅ FIX C: fee summation is valid only when all three components share ask_asset denom.
+              // For native DEX swaps this invariant holds: commission/maker_fee/fee_share are all ask_asset.
+              // feeDenom is strictly ask_asset (no fallback to offer_asset, which would be wrong).
+              const feeDenom = askAsset ?? null;
+              const totalFeeBig = commissionBig + makerFeeBig + feeShareBig;
+              const totalFee = totalFeeBig.toString();
 
               const swapRow = {
                 tx_hash,
@@ -1868,8 +1931,9 @@ export class PostgresSink implements Sink {
                 reserves,
                 pair_id: pairId,
                 effective_price: effectivePrice,
-                price_impact: priceImpact,
+                price_impact: spreadRatioBps,
                 total_fee: totalFee,
+                fee_denom: feeDenom,
                 block_height: height,
                 timestamp: time
               };
@@ -1889,13 +1953,29 @@ export class PostgresSink implements Sink {
                   pair_id: swapRow.pair_id,
                   effective_price: swapRow.effective_price,
                   total_fee: swapRow.total_fee,
-                  price_impact: swapRow.price_impact ? swapRow.price_impact.toString() : null,
+                  fee_denom: swapRow.fee_denom,
+                  price_impact: swapRow.price_impact != null ? swapRow.price_impact : null,
                   block_height: swapRow.block_height,
                   timestamp: swapRow.timestamp
                 });
               } else {
                 // Route Smart Contract Swaps to wasm schema
                 wasmSwapsRows.push(swapRow);
+                // ✅ Phase 1: Discover WASM AMM pool on first swap seen
+                // pair_id = "baseToken-quoteToken" — split on last '-' before 'uzig'
+                const pairParts = swapRow.pair_id?.split('-') ?? [];
+                const wasmBase = pairParts.length >= 2 ? pairParts.slice(0, -1).join('-') : swapRow.offer_asset;
+                const wasmQuote = pairParts.length >= 2 ? pairParts[pairParts.length - 1] : swapRow.ask_asset;
+                dexFoundationPoolsRows.push({
+                  pair_contract: swapRow.contract,
+                  base_denom: wasmBase ?? null,
+                  quote_denom: wasmQuote ?? null,
+                  pair_id: swapRow.pair_id ?? null,
+                  signer: null,           // unknown for WASM pools
+                  created_height: null,
+                  created_tx_hash: null,
+                });
+
               }
             }
 
@@ -2115,9 +2195,10 @@ export class PostgresSink implements Sink {
 
               ibcPacketsRows.push(packetRow);
 
-              // ✅ Register in Token Registry
+              // ✅ FIX: Only force 'ibc' type for ibc/ hashes; let base denoms auto-classify
               if (denom) {
-                registerToken(denom, 'ibc', {}, tx_hash);
+                const isIbcHash = denom.startsWith('ibc/');
+                registerToken(denom, isIbcHash ? 'ibc' : undefined, {}, tx_hash);
               }
 
               // ✅ FIX: Always record transfers for ALL lifecycle events (not just when denom/amount present)
@@ -2241,8 +2322,17 @@ export class PostgresSink implements Sink {
               // Prepend ibc/ to hash if not already present
               const ibcHash = hash.startsWith('ibc/') ? hash : `ibc/${hash}`;
               ibcDenomsRows.push({ hash: ibcHash, full_path: fullPath, base_denom: baseDenom });
+              // Explicitly register the hash as 'ibc' type
               registerToken(ibcHash, 'ibc', { base_denom: baseDenom, symbol: baseDenom }, tx_hash);
-              registerToken(fullPath, 'ibc', { base_denom: baseDenom, symbol: baseDenom }, tx_hash);
+              // Register the full path WITHOUT forcing 'ibc' type (let it auto-classify or stay as rType)
+              registerToken(fullPath, undefined, { base_denom: baseDenom, symbol: baseDenom }, tx_hash);
+              // ✅ Phase 1 FIX: Wire ibc_tokens - resolved after tokens are flushed via token_id FK in inserter
+              dexIbcTokensRows.push({
+                ibc_denom: ibcHash,
+                base_denom: baseDenom,
+                channel: fullPath.split('/')[1] ?? null,
+                port: fullPath.split('/')[0] ?? null,
+              });
             }
           }
 
@@ -2378,7 +2468,7 @@ export class PostgresSink implements Sink {
     return {
       blockRow, txRows, msgRows, evRows, attrRows,
       transfersRows, wasmExecRows, wasmEventsRows,
-      ibcPacketsRows, // 👈 Returning IBC Data
+      ibcPacketsRows,
       ibcChannelsRows,
       ibcTransfersRows,
       ibcClientsRows,
@@ -2388,11 +2478,15 @@ export class PostgresSink implements Sink {
       factoryDenomsRows, dexPoolsRows, dexSwapsRows, dexLiquidityRows, wrapperSettingsRows, wrapperEventsRows,
       balanceDeltasRows, wasmCodesRows, wasmContractsRows, wasmMigrationsRows, wasmAdminChangesRows, networkParamsRows,
       wasmEventAttrsRows,
-      wasmSwapsRows, // ✅ WASM DEX Swaps Analytics
-      tokenRegistryRows, // ✅ Universal Token Registry
-      unknownMsgsRows, // ✅ Unknown Messages Quarantine
+      wasmSwapsRows,
+      tokenRegistryRows,
+      unknownMsgsRows,
       factorySupplyEventsRows,
       wasmInstantiateConfigsRows,
+      // ✅ Phase 1: Return local row arrays (safe pattern — no this.buf* in extractRows)
+      dexFoundationPoolsRows,
+      dexFoundationWalletsRows,
+      dexIbcTokensRows,
       height
     };
   }
@@ -2437,16 +2531,18 @@ export class PostgresSink implements Sink {
     this.bufIbcDenoms.push(...data.ibcDenomsRows);
     this.bufIbcConnections.push(...data.ibcConnectionsRows);
 
-    // ✅ Tokens (CW20) (Pushing to Buffer)
+    // ✅ Tokens, WASM Swaps, Registry, Unknown, Supply
     this.bufCw20Transfers.push(...data.cw20TransfersRows);
-
-    // ✅ WASM DEX Swaps Analytics (Pushing to Buffer)
     this.bufWasmSwaps.push(...data.wasmSwapsRows);
-    this.bufTokenRegistry.push(...data.tokenRegistryRows); // ✅ NEW
-
-    // ✅ Unknown Messages Quarantine (Pushing to Buffer)
+    this.bufTokenRegistry.push(...data.tokenRegistryRows);
     this.bufUnknownMsgs.push(...data.unknownMsgsRows);
     this.bufFactorySupplyEvents.push(...data.factorySupplyEventsRows);
+
+    // ✅ Phase 1: Buffer Phase 1 rows from extractRows return value (correct pattern)
+    this.bufDexFoundationPools.push(...data.dexFoundationPoolsRows);
+    this.bufDexFoundationWallets.push(...data.dexFoundationWalletsRows);
+    this.bufDexFoundationIbcTokens.push(...data.dexIbcTokensRows);
+
 
     const zCount = this.bufFactoryDenoms.length + this.bufDexPools.length + this.bufDexSwaps.length + this.bufDexLiquidity.length;
 
@@ -2501,6 +2597,10 @@ export class PostgresSink implements Sink {
       tokenRegistry: this.bufTokenRegistry, // ✅ NEW
       unknownMsgs: this.bufUnknownMsgs,
       factorySupplyEvents: this.bufFactorySupplyEvents,
+      // ✅ Phase 1
+      dexFoundationPools: this.bufDexFoundationPools,
+      dexFoundationWallets: this.bufDexFoundationWallets,
+      dexFoundationIbcTokens: this.bufDexFoundationIbcTokens,
     };
 
     // Reset all main buffers
@@ -2515,6 +2615,10 @@ export class PostgresSink implements Sink {
     this.bufCw20Transfers = [];
     this.bufWasmSwaps = []; this.bufTokenRegistry = []; this.bufUnknownMsgs = [];
     this.bufFactorySupplyEvents = [];
+    // ✅ Phase 1
+    this.bufDexFoundationPools = [];
+    this.bufDexFoundationWallets = [];
+    this.bufDexFoundationIbcTokens = [];
 
     // Enrich token registry rows once per denom from chain metadata (cached per process).
     await this.enrichTokenRegistryRowsFromRpc(snapshot.tokenRegistry);
@@ -2629,6 +2733,14 @@ export class PostgresSink implements Sink {
       await flushWasmSwaps(client, snapshot.wasmSwaps); // ✅ FIX: Flush WASM Swaps
       await flushTokenRegistry(client, snapshot.tokenRegistry); // ✅ NEW
 
+      // ✅ Phase 1: DEX Foundation — pools/wallets/ibc_tokens (token FKs resolved from tokens.registry)
+      await insertDexPools(client, snapshot.dexFoundationPools);
+      await insertDexWallets(client, snapshot.dexFoundationWallets);
+      await insertDexIbcTokens(client, snapshot.dexFoundationIbcTokens); // must run after flushTokenRegistry
+
+      // ✅ Phase 2: Unified trades — consumes existing swap + LP snapshots (no new buffers)
+      await insertDexTrades(client, snapshot.dexSwaps, snapshot.wasmSwaps, snapshot.dexLiquidity);
+
       await flushZigchainData(client, {
         factoryDenoms: snapshot.factoryDenoms,
         dexPools: snapshot.dexPools,
@@ -2690,6 +2802,10 @@ export class PostgresSink implements Sink {
 
       this.bufUnknownMsgs = [...snapshot.unknownMsgs, ...this.bufUnknownMsgs];
       this.bufFactorySupplyEvents = [...snapshot.factorySupplyEvents, ...this.bufFactorySupplyEvents];
+      // ✅ Phase 1: Restore DEX foundation buffers on failure
+      this.bufDexFoundationPools = [...snapshot.dexFoundationPools, ...this.bufDexFoundationPools];
+      this.bufDexFoundationWallets = [...snapshot.dexFoundationWallets, ...this.bufDexFoundationWallets];
+      this.bufDexFoundationIbcTokens = [...snapshot.dexFoundationIbcTokens, ...this.bufDexFoundationIbcTokens];
 
       throw e;
     } finally {

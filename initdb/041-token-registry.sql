@@ -2,6 +2,7 @@
 -- Universal Token Registry for all assets on Zigchain
 
 CREATE TABLE IF NOT EXISTS tokens.registry (
+    token_id          BIGSERIAL UNIQUE NOT NULL,  -- Integer FK target for dex.pools, dex.ibc_tokens
     denom             TEXT PRIMARY KEY,  -- Unique identifier (e.g., 'uzig', 'coin.zig...', 'ibc/...')
     type              TEXT NOT NULL,     -- 'native', 'factory', 'cw20', 'ibc'
     base_denom        TEXT,              -- Human readable symbol (uzig, stzig, etc.)

@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:${PG_VERSION}
+    image: timescale/timescaledb-ha:pg18
     container_name: cosmosindexer
     restart: unless-stopped
     healthcheck:
@@ -22,7 +22,7 @@ services:
     volumes:
       # ✅ CUSTOM CONFIG: Load optimized settings
       - ./custom_postgres.conf:/etc/postgresql/postgresql.conf:ro
-      - "/media/asim/ubuntu v2/indexer-data:/var/lib/postgresql"
+      - "/media/asim/ubuntu v2/indexer-data-v2:/home/postgres/pgdata"
       # ✅ INIT SCRIPTS: Auto-run SQL files in ./initdb on fresh start
       - ./initdb:/docker-entrypoint-initdb.d:ro
       
