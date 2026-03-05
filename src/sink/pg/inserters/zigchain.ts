@@ -81,15 +81,15 @@ export async function insertDexSwaps(client: PoolClient, rows: any[]): Promise<v
           p.pool_id,
           SUM(
             CASE
-              WHEN i.token_in_denom = p.base_denom AND i.token_in_amount ~ '^[0-9]+$' THEN i.token_in_amount::numeric
-              WHEN i.token_out_denom = p.base_denom AND i.token_out_amount ~ '^[0-9]+$' THEN -i.token_out_amount::numeric
+              WHEN i.token_in_denom = p.base_denom AND i.token_in_amount::text ~ '^[0-9]+$' THEN i.token_in_amount::numeric
+              WHEN i.token_out_denom = p.base_denom AND i.token_out_amount::text ~ '^[0-9]+$' THEN -i.token_out_amount::numeric
               ELSE 0
             END
           ) AS delta_base,
           SUM(
             CASE
-              WHEN i.token_in_denom = p.quote_denom AND i.token_in_amount ~ '^[0-9]+$' THEN i.token_in_amount::numeric
-              WHEN i.token_out_denom = p.quote_denom AND i.token_out_amount ~ '^[0-9]+$' THEN -i.token_out_amount::numeric
+              WHEN i.token_in_denom = p.quote_denom AND i.token_in_amount::text ~ '^[0-9]+$' THEN i.token_in_amount::numeric
+              WHEN i.token_out_denom = p.quote_denom AND i.token_out_amount::text ~ '^[0-9]+$' THEN -i.token_out_amount::numeric
               ELSE 0
             END
           ) AS delta_quote,
@@ -139,15 +139,15 @@ export async function insertDexLiquidity(client: PoolClient, rows: any[]): Promi
           p.pool_id,
           SUM(
             CASE
-              WHEN upper(COALESCE(i.action_type, '')) = 'ADD' AND i.amount_0 ~ '^[0-9]+$' THEN i.amount_0::numeric
-              WHEN upper(COALESCE(i.action_type, '')) = 'REMOVE' AND i.amount_0 ~ '^[0-9]+$' THEN -i.amount_0::numeric
+              WHEN upper(COALESCE(i.action_type, '')) = 'ADD' AND i.amount_0::text ~ '^[0-9]+$' THEN i.amount_0::numeric
+              WHEN upper(COALESCE(i.action_type, '')) = 'REMOVE' AND i.amount_0::text ~ '^[0-9]+$' THEN -i.amount_0::numeric
               ELSE 0
             END
           ) AS delta_base,
           SUM(
             CASE
-              WHEN upper(COALESCE(i.action_type, '')) = 'ADD' AND i.amount_1 ~ '^[0-9]+$' THEN i.amount_1::numeric
-              WHEN upper(COALESCE(i.action_type, '')) = 'REMOVE' AND i.amount_1 ~ '^[0-9]+$' THEN -i.amount_1::numeric
+              WHEN upper(COALESCE(i.action_type, '')) = 'ADD' AND i.amount_1::text ~ '^[0-9]+$' THEN i.amount_1::numeric
+              WHEN upper(COALESCE(i.action_type, '')) = 'REMOVE' AND i.amount_1::text ~ '^[0-9]+$' THEN -i.amount_1::numeric
               ELSE 0
             END
           ) AS delta_quote,

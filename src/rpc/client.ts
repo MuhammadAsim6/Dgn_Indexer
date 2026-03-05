@@ -103,6 +103,7 @@ export function createRpcClient(opts: RpcClientOptions): RpcClient {
   const headers: Record<string, string> = {
     accept: 'application/json',
     'accept-encoding': 'gzip, br',
+    'user-agent': 'cosmos-indexer/1.0',
     connection: 'keep-alive',
     ...(opts.headers ?? {}),
   };
