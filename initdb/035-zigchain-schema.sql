@@ -54,13 +54,14 @@ CREATE TABLE IF NOT EXISTS zigchain.dex_swaps (
     pool_id           TEXT NOT NULL,  -- Removed FK: pool may not exist if indexing from later block
     sender_address    TEXT NOT NULL,
     token_in_denom    TEXT,
-    token_in_amount   TEXT, 
+    token_in_amount   NUMERIC(80,0), 
     token_out_denom   TEXT,
-    token_out_amount  TEXT, 
+    token_out_amount  NUMERIC(80,0), 
     -- Analytics columns (Mirrored from wasm.dex_swaps)
     pair_id           TEXT,
     effective_price   NUMERIC,
-    total_fee         TEXT DEFAULT '0',
+    total_fee         NUMERIC(80,0) DEFAULT 0,
+    fee_denom         TEXT,
     price_impact      TEXT, 
     block_height      BIGINT NOT NULL,
     timestamp         TIMESTAMPTZ DEFAULT NOW(),

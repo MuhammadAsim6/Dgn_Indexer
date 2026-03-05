@@ -28,6 +28,7 @@ export async function insertWasmSwaps(client: PoolClient, rows: any[]): Promise<
         'effective_price',
         'price_impact',
         'total_fee',
+        'fee_denom',
         'block_height',
         'timestamp'
     ];

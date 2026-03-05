@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS wasm.dex_swaps (
     effective_price   NUMERIC(40,18),   -- return_amount / offer_amount
     price_impact      NUMERIC(40,18),   -- (spread_amount / offer_amount) * 100
     total_fee         NUMERIC(80,0),    -- commission + maker_fee + fee_share
+    fee_denom         TEXT,
     block_height      BIGINT NOT NULL,
     timestamp         TIMESTAMPTZ,
     PRIMARY KEY (tx_hash, msg_index, event_index, block_height)
