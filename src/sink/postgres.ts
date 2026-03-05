@@ -67,6 +67,13 @@ import { flushWasmSwaps } from './pg/flushers/wasm_swaps.js';
 import { flushTokenRegistry } from './pg/flushers/tokens.js';
 import { fetchContractInfoViaAbci } from './pg/helpers/wasm_abci.js';
 
+// ✅ DEX Phase 1+2: Token ID resolution & Trades pipeline
+import { resolveTokenIds, stampTokenIds } from './pg/helpers/token_resolver.js';
+import { insertDexTrades } from './pg/inserters/dex_trades.js';
+
+// ✅ DEX Phase 3: Inline price derivation
+import { deriveAndUpsertPrices } from './pg/helpers/price_engine.js';
+
 import {
   buildTokenRegistryRow,
   inferTokenType,
@@ -2461,6 +2468,171 @@ export class PostgresSink implements Sink {
     }
   }
 
+  /**
+   * ✅ DEX Phase 2: Upsert dex.pools from zigchain.dex_pools rows.
+   * Resolves base_denom and quote_denom → token_ids.
+   */
+  private async upsertDexPools(client: any, poolRows: any[]): Promise<void> {
+    if (!poolRows.length) return;
+
+    // Collect all denoms from pool rows
+    const denoms = new Set<string>();
+    for (const p of poolRows) {
+      if (p.base_denom) denoms.add(p.base_denom);
+      if (p.quote_denom) denoms.add(p.quote_denom);
+    }
+    const tokenMap = await resolveTokenIds(client, [...denoms]);
+
+    // Build dex.pools rows
+    for (const p of poolRows) {
+      const baseTokenId = tokenMap.get(p.base_denom) ?? null;
+      const quoteTokenId = tokenMap.get(p.quote_denom) ?? null;
+
+      await client.query(`
+        INSERT INTO dex.pools (pair_contract, base_token_id, quote_token_id, lp_token_denom, pair_id, pair_type, signer, created_height, created_tx_hash)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (pair_contract) DO UPDATE SET
+          base_token_id  = COALESCE(EXCLUDED.base_token_id, dex.pools.base_token_id),
+          quote_token_id = COALESCE(EXCLUDED.quote_token_id, dex.pools.quote_token_id),
+          lp_token_denom = COALESCE(EXCLUDED.lp_token_denom, dex.pools.lp_token_denom),
+          pair_id        = COALESCE(EXCLUDED.pair_id, dex.pools.pair_id),
+          updated_at     = NOW()
+      `, [
+        String(p.pool_id),         // pair_contract = stringified zigchain pool_id
+        baseTokenId,
+        quoteTokenId,
+        p.lp_token_denom ?? null,
+        p.pair_id ?? null,
+        null,                      // pair_type (not in zigchain schema)
+        p.creator_address ?? null,
+        p.block_height ?? null,
+        p.tx_hash ?? null,
+      ]);
+    }
+
+    log.debug(`[dex-pools] upserted ${poolRows.length} pools into dex.pools`);
+  }
+
+  /**
+   * ✅ DEX Phase 2: Auto-register WASM contract-based pools from WASM swap data.
+   * Discovers unique contract addresses from swap rows and upserts into dex.pools.
+   */
+  private async upsertWasmPools(client: any, wasmSwapRows: any[]): Promise<void> {
+    if (!wasmSwapRows.length) return;
+
+    // Collect unique contract → (offer_asset, ask_asset) pairs
+    const seen = new Map<string, { base: string | null; quote: string | null; height: number | null; sender: string | null }>();
+    for (const s of wasmSwapRows) {
+      const contract = String(s.contract ?? s.pair_contract ?? '').trim();
+      if (!contract) continue;
+      if (!seen.has(contract)) {
+        seen.set(contract, {
+          base: s.offer_asset ?? null,
+          quote: s.ask_asset ?? s.return_asset ?? null,
+          height: s.block_height ?? s.height ?? null,
+          sender: s.sender ?? null,
+        });
+      }
+    }
+
+    if (seen.size === 0) return;
+
+    // Resolve token_ids for all denoms
+    const denoms = new Set<string>();
+    for (const meta of seen.values()) {
+      if (meta.base) denoms.add(meta.base);
+      if (meta.quote) denoms.add(meta.quote);
+    }
+    const tokenMap = await resolveTokenIds(client, [...denoms]);
+
+    // Upsert into dex.pools
+    let inserted = 0;
+    for (const [contract, meta] of seen) {
+      const baseTokenId = meta.base ? (tokenMap.get(meta.base) ?? null) : null;
+      const quoteTokenId = meta.quote ? (tokenMap.get(meta.quote) ?? null) : null;
+
+      // Generate pair_id from sorted denoms
+      const pairId = meta.base && meta.quote
+        ? [meta.base, meta.quote].sort().join('-')
+        : null;
+
+      await client.query(`
+        INSERT INTO dex.pools (pair_contract, base_token_id, quote_token_id, pair_id, pair_type, signer, created_height)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (pair_contract) DO UPDATE SET
+          base_token_id  = COALESCE(dex.pools.base_token_id, EXCLUDED.base_token_id),
+          quote_token_id = COALESCE(dex.pools.quote_token_id, EXCLUDED.quote_token_id),
+          pair_id        = COALESCE(dex.pools.pair_id, EXCLUDED.pair_id),
+          updated_at     = NOW()
+      `, [
+        contract,          // pair_contract = WASM contract address
+        baseTokenId,
+        quoteTokenId,
+        pairId,
+        'wasm',            // pair_type to distinguish from native pools
+        meta.sender,
+        meta.height,
+      ]);
+      inserted++;
+    }
+
+    if (inserted > 0) {
+      log.debug(`[dex-pools] auto-registered ${inserted} WASM pools into dex.pools`);
+    }
+  }
+
+  /**
+   * ✅ DEX Phase 1: Populate dex.wallets from various signer/address fields.
+   */
+  private async upsertDexWallets(client: any, snapshot: any): Promise<void> {
+    const addresses = new Set<string>();
+    for (const tx of snapshot.txs) if (tx.signer) addresses.add(tx.signer);
+    for (const t of snapshot.transfers) {
+      if (t.from_addr) addresses.add(t.from_addr);
+      if (t.to_addr) addresses.add(t.to_addr);
+    }
+    for (const s of snapshot.dexSwaps) if (s.sender_address) addresses.add(s.sender_address);
+    for (const s of snapshot.wasmSwaps) if (s.sender) addresses.add(s.sender);
+    for (const l of snapshot.dexLiquidity) if (l.sender_address) addresses.add(l.sender_address);
+    if (addresses.size === 0) return;
+
+    await client.query(`
+      INSERT INTO dex.wallets (address, first_seen_height, first_seen_at)
+      SELECT UNNEST($1::text[]), $2, $3
+      ON CONFLICT (address) DO NOTHING
+    `, [[...addresses], snapshot.blocks[0]?.height ?? null, snapshot.blocks[0]?.time ?? new Date()]);
+  }
+
+  /**
+   * ✅ DEX Phase 1: Populate dex.ibc_tokens with extended metadata.
+   */
+  private async upsertIbcTokens(client: any, ibcDenomRows: any[]): Promise<void> {
+    if (!ibcDenomRows.length) return;
+    const hashes = ibcDenomRows.map((r: any) => r.hash);
+    const tokenMap = await resolveTokenIds(client, hashes);
+
+    for (const r of ibcDenomRows) {
+      const tokenId = tokenMap.get(r.hash);
+      if (!tokenId) continue;
+      const pathParts = String(r.full_path ?? '').split('/');
+      let port = null, channel = null;
+      if (pathParts.length >= 3) {
+        port = pathParts[0];
+        channel = pathParts[1];
+      }
+
+      await client.query(`
+        INSERT INTO dex.ibc_tokens (token_id, ibc_denom, base_denom, channel, port)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (ibc_denom) DO UPDATE SET
+          base_denom = COALESCE(EXCLUDED.base_denom, dex.ibc_tokens.base_denom),
+          channel = COALESCE(EXCLUDED.channel, dex.ibc_tokens.channel),
+          port = COALESCE(EXCLUDED.port, dex.ibc_tokens.port),
+          updated_at = NOW()
+      `, [tokenId, r.hash, r.base_denom, channel, port]);
+    }
+  }
+
   private async flushAll(): Promise<void> {
     if (this.bufBlocks.length === 0 && this.bufTxs.length === 0) return;
 
@@ -2540,12 +2712,29 @@ export class PostgresSink implements Sink {
         transactionStarted = true;
       }
 
-      // 1. Standard
+      // 1. Standard (core tables — no FK dependencies)
       await flushBlocks(client, snapshot.blocks);
       await flushTxs(client, snapshot.txs);
       await flushMsgs(client, snapshot.msgs);
       await flushEvents(client, snapshot.events);
       await flushAttrs(client, snapshot.attrs);
+
+      // ✅ DEX Phase 1: Flush token registry FIRST so denoms exist for token_id resolution
+      await flushWasmSwaps(client, snapshot.wasmSwaps);
+      await flushTokenRegistry(client, snapshot.tokenRegistry);
+
+      // ✅ DEX Phase 1: Resolve token_ids for all denoms in bank rows BEFORE inserting them
+      const allDenoms = new Set<string>();
+      for (const r of snapshot.transfers) { if (r.denom) allDenoms.add(r.denom); }
+      for (const r of snapshot.balanceDeltas) { if (r.denom) allDenoms.add(r.denom); }
+      const denomArr = [...allDenoms];
+      if (denomArr.length > 0) {
+        const tokenMap = await resolveTokenIds(client, denomArr);
+        stampTokenIds(snapshot.transfers, tokenMap);
+        stampTokenIds(snapshot.balanceDeltas, tokenMap);
+      }
+
+      // NOW flush bank data with token_ids stamped
       await flushTransfers(client, snapshot.transfers);
 
       // 2. Modules (WASM)
@@ -2626,9 +2815,6 @@ export class PostgresSink implements Sink {
       }
 
       // 3. Zigchain
-      await flushWasmSwaps(client, snapshot.wasmSwaps); // ✅ FIX: Flush WASM Swaps
-      await flushTokenRegistry(client, snapshot.tokenRegistry); // ✅ NEW
-
       await flushZigchainData(client, {
         factoryDenoms: snapshot.factoryDenoms,
         dexPools: snapshot.dexPools,
@@ -2637,6 +2823,32 @@ export class PostgresSink implements Sink {
         wrapperSettings: snapshot.wrapperSettings,
         wrapperEvents: snapshot.wrapperEvents
       });
+
+      // ✅ DEX Phase 2: Upsert dex.pools from zigchain.dex_pools (resolve token_ids for base/quote)
+      if (snapshot.dexPools.length > 0) {
+        await this.upsertDexPools(client, snapshot.dexPools);
+      }
+
+      // ✅ DEX Phase 2: Auto-register WASM pools from WASM swap contract addresses
+      if (snapshot.wasmSwaps.length > 0) {
+        await this.upsertWasmPools(client, snapshot.wasmSwaps);
+      }
+
+      // ✅ DEX Phase 1: Populate wallets and IBC tokens
+      await this.upsertDexWallets(client, snapshot);
+      await this.upsertIbcTokens(client, snapshot.ibcDenoms);
+
+      // ✅ DEX Phase 2: Flush trades after zigchain tables & dex.pools are populated
+      if (snapshot.dexSwaps.length > 0 || snapshot.wasmSwaps.length > 0 || snapshot.dexLiquidity.length > 0) {
+        const blockTimes = new Map<number, Date>();
+        for (const b of snapshot.blocks) {
+          if (b.height && b.time) blockTimes.set(b.height, new Date(b.time));
+        }
+        await insertDexTrades(client, snapshot.dexSwaps, snapshot.wasmSwaps, snapshot.dexLiquidity, blockTimes);
+
+        // ✅ DEX Phase 3: Derive prices from latest trades
+        await deriveAndUpsertPrices(client, snapshot.dexSwaps.length + snapshot.wasmSwaps.length);
+      }
 
       if (maxH != null) {
         await upsertProgress(client, this.cfg.pg?.progressId ?? 'default', maxH);

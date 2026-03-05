@@ -115,25 +115,31 @@ CREATE INDEX IF NOT EXISTS idx_missing_blocks_last_seen ON core.missing_blocks(l
 CREATE TABLE IF NOT EXISTS bank.transfers (
     tx_hash   TEXT           NOT NULL,
     msg_index INT            NOT NULL,
+    event_index INT          NOT NULL DEFAULT -1,
     from_addr TEXT           NOT NULL,
     to_addr   TEXT           NOT NULL,
     denom     TEXT           NOT NULL,
+    token_id  BIGINT,
     amount    NUMERIC(80, 0) NOT NULL,
     height    BIGINT         NOT NULL,
-    PRIMARY KEY (height, tx_hash, msg_index, from_addr, to_addr, denom)
+    PRIMARY KEY (height, tx_hash, msg_index, event_index, from_addr, to_addr, denom)
 ) PARTITION BY RANGE (height);
 CREATE TABLE IF NOT EXISTS bank.transfers_p0 PARTITION OF bank.transfers FOR VALUES FROM (0) TO (500000);
+CREATE INDEX IF NOT EXISTS idx_transfers_token_id ON bank.transfers(token_id, height DESC);
 
 CREATE TABLE bank.balance_deltas (
     height  BIGINT         NOT NULL,
     account TEXT           NOT NULL,
     denom   TEXT           NOT NULL,
+    token_id BIGINT,
     delta   NUMERIC(80, 0) NOT NULL,
     PRIMARY KEY (height, account, denom)
 ) PARTITION BY RANGE (height);
 
 -- ✅ FIXED: Added missing initial partition
 CREATE TABLE IF NOT EXISTS bank.balance_deltas_p0 PARTITION OF bank.balance_deltas FOR VALUES FROM (0) TO (500000);
+CREATE INDEX IF NOT EXISTS idx_balance_deltas_token_id ON bank.balance_deltas(token_id, height DESC);
+CREATE INDEX IF NOT EXISTS idx_balance_deltas_account_token ON bank.balance_deltas(account, token_id, height DESC);
 
 -- ✅ FIXED: Added missing progress tracking table
 CREATE TABLE IF NOT EXISTS core.indexer_progress (

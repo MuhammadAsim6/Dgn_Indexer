@@ -24,13 +24,14 @@ function normalizeTransferRow(row: any): any | null {
   const amount = String(row?.amount ?? '').trim();
   const height = asInteger(row?.height);
   const msg_index = asInteger(row?.msg_index);
-  const event_index = asInteger(row?.event_index);
+  const event_index = asInteger(row?.event_index) ?? -1;
+  const token_id = row?.token_id != null ? Number(row.token_id) : null;
 
   if (!tx_hash || !from_addr || !to_addr || !denom) return null;
   if (!/^\d+$/.test(amount)) return null;
-  if (height == null || msg_index == null || event_index == null) return null;
+  if (height == null || msg_index == null) return null;
 
-  return { tx_hash, msg_index, event_index, from_addr, to_addr, denom, amount, height };
+  return { tx_hash, msg_index, event_index, from_addr, to_addr, denom, token_id, amount, height };
 }
 
 /**
@@ -59,7 +60,7 @@ export async function flushTransfers(client: PoolClient, rows: any[]): Promise<v
 
   await client.query(`SET LOCAL statement_timeout = '30s'`);
   await client.query(`SET LOCAL lock_timeout = '5s'`);
-  const cols = ['tx_hash', 'msg_index', 'event_index', 'from_addr', 'to_addr', 'denom', 'amount', 'height'];
+  const cols = ['tx_hash', 'msg_index', 'event_index', 'from_addr', 'to_addr', 'denom', 'token_id', 'amount', 'height'];
   await execBatchedInsert(
     client,
     'bank.transfers',

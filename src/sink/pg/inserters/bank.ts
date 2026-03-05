@@ -54,7 +54,7 @@ export async function insertBalanceDeltas(client: PoolClient, rows: any[], opts?
     }
 
     const uniqueRows = Array.from(aggregated.values());
-    const cols = ['height', 'account', 'denom', 'delta'];
+    const cols = ['height', 'account', 'denom', 'token_id', 'delta'];
 
     const { text, values } = makeMultiInsert(
         'bank.balance_deltas',

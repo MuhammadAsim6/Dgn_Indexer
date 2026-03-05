@@ -23,6 +23,13 @@ import { bootstrapGenesis } from './scripts/genesis-bootstrap.ts';
 import { runReconcileCycle } from './sink/pg/reconcile.ts';
 import { ensureCorePartitions } from './db/partitions.js';
 
+// ✅ DEX Phase 3: Background jobs
+import { JobScheduler } from './jobs/job-scheduler.js';
+import { runPriceTicker } from './jobs/price-ticker.js';
+import { runStorkOracle } from './jobs/stork-oracle.js';
+import { runMatrixRoller } from './jobs/matrix-roller.js';
+import { runExternalPrices } from './jobs/external-prices.js';
+
 EventEmitter.defaultMaxListeners = 0;
 const log = getLogger('index');
 
@@ -51,13 +58,14 @@ async function main() {
   let decodePool: any = null;
   let sink: any = null;
   let reconcileTimer: NodeJS.Timeout | null = null;
+  let jobScheduler: JobScheduler | null = null;
 
   // Cleanup handler for signals and catch blocks
   let isCleaningUp = false;
   const gracefulCleanup = async (exitCode: number) => {
     if (isCleaningUp) return;
     isCleaningUp = true;
-    await cleanup(decodePool, sink, reconcileTimer);
+    await cleanup(decodePool, sink, reconcileTimer, jobScheduler);
     process.exit(exitCode);
   };
 
@@ -332,6 +340,16 @@ async function main() {
         }, cfg.reconcileIntervalMs ?? 24 * 60 * 60 * 1000); // 1 day cleanup/reconcile period
       }
 
+      // ✅ DEX Phase 3: Start background analytics jobs
+      if (cfg.sinkKind === 'postgres') {
+        const pgPool = getPgPool();
+        jobScheduler = new JobScheduler(pgPool);
+        jobScheduler.register({ name: 'price-ticker', intervalMs: 30_000, fn: runPriceTicker });
+        jobScheduler.register({ name: 'stork-oracle', intervalMs: 600_000, fn: runStorkOracle }); // 10 mins (144/day)
+        jobScheduler.register({ name: 'matrix-roller', intervalMs: 300_000, fn: runMatrixRoller });
+        jobScheduler.register({ name: 'external-prices', intervalMs: 1_800_000, fn: runExternalPrices }); // 30 mins (48/day)
+      }
+
       await followLoop(rpc, decodePool, sink, {
         startNext: endHeight + 1,
         pollMs,
@@ -341,7 +359,7 @@ async function main() {
       });
     }
 
-    await cleanup(decodePool, sink, reconcileTimer);
+    await cleanup(decodePool, sink, reconcileTimer, jobScheduler);
   } catch (e) {
     const msg = e instanceof Error ? e.stack || e.message : String(e);
     log.error(msg);
@@ -349,9 +367,12 @@ async function main() {
   }
 }
 
-async function cleanup(decodePool: any, sink: any, reconcileTimer: NodeJS.Timeout | null = null) {
+async function cleanup(decodePool: any, sink: any, reconcileTimer: NodeJS.Timeout | null = null, jobScheduler: JobScheduler | null = null) {
   log.info('Shutdown initiated…');
   try {
+    if (jobScheduler) {
+      jobScheduler.stop();
+    }
     if (reconcileTimer) {
       clearInterval(reconcileTimer);
     }
