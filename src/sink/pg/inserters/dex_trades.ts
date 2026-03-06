@@ -123,13 +123,31 @@ export async function insertDexTrades(
         const pairContract = String(s.pair_contract ?? s.contract ?? '');
         const poolInfo = meta.get(pairContract);
 
+        // Derive direction for WASM trades (Point 4)
+        let direction: 'buy' | 'sell' | null = null;
+        if (poolInfo) {
+            if (s.offer_asset === poolInfo.quote_denom) direction = 'buy';    // paying quote for base
+            else if (s.offer_asset === poolInfo.base_denom) direction = 'sell'; // selling base for quote
+        }
+
+        // Derive price if not provided
+        let priceInQuote: number | null = s.effective_price ?? s.price_in_quote ?? null;
+        if (!priceInQuote && poolInfo && direction) {
+            const offerAmount = BigInt(String(s.offer_amount ?? '0'));
+            const returnAmount = BigInt(String(s.return_amount ?? '0'));
+            if (offerAmount > 0n && returnAmount > 0n) {
+                if (direction === 'buy') priceInQuote = Number(offerAmount) / Number(returnAmount);
+                else if (direction === 'sell') priceInQuote = Number(returnAmount) / Number(offerAmount);
+            }
+        }
+
         const height = Number(s.height ?? s.block_height);
         const createdAt = blockTimes.get(height) ?? new Date();
 
         trades.push({
             pool_id: poolInfo?.pool_id ?? null,
             action: 'swap',
-            direction: s.direction ?? null,
+            direction,
             source_kind: 'wasm_swap',
             msg_index: s.msg_index ?? -1,
             event_index: s.event_index ?? -1,
@@ -141,7 +159,7 @@ export async function insertDexTrades(
             tx_hash: s.tx_hash,
             signer: s.sender ?? s.signer ?? null,
             created_at: createdAt,
-            price_in_quote: s.effective_price ?? s.price_in_quote ?? null,
+            price_in_quote: priceInQuote,
             price_in_zig: null,
             price_in_usd: null,
             value_in_zig: null,
@@ -193,8 +211,8 @@ export async function insertDexTrades(
         'dex.trades',
         cols,
         trades,
-        'ON CONFLICT (tx_hash, source_kind, msg_index, event_index) DO NOTHING',
+        'ON CONFLICT (tx_hash, source_kind, msg_index, event_index, created_at) DO NOTHING',
     );
 
-    log.info(`[dex-trades] inserted ${trades.length} trades (native=${zigSwaps.length} wasm=${wasmSwaps.length} lp=${zigLiquidity.length})`);
+    log.debug(`[dex-trades] inserted ${trades.length} trades (native=${zigSwaps.length} wasm=${wasmSwaps.length} lp=${zigLiquidity.length})`);
 }

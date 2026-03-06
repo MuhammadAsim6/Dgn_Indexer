@@ -1,6 +1,6 @@
 -- initdb/082-dex-analytics.sql
--- Phase 3: Analytics & Pricing (PostgreSQL 18 — no TimescaleDB)
--- Requires: 080-dex-foundation.sql, 081-dex-trades.sql
+-- Phase 3: Analytics & Pricing
+-- Requires: 080-dex-foundation.sql, 081-dex-phase2.sql
 
 -- ============================================================
 -- 1. dex.prices — Latest price per token/pool
@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS dex.prices (
     token_id       BIGINT REFERENCES tokens.registry(token_id),
     pool_id        BIGINT REFERENCES dex.pools(pool_id),
     price_in_zig   NUMERIC(38,18),
+    price_in_usd   NUMERIC(38,18),               -- Added for alert-evaluator (Point 2)
     is_pair_native BOOLEAN DEFAULT FALSE,
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (token_id, pool_id)
@@ -19,26 +20,30 @@ CREATE INDEX IF NOT EXISTS idx_dex_prices_token ON dex.prices(token_id);
 CREATE INDEX IF NOT EXISTS idx_dex_prices_pool  ON dex.prices(pool_id);
 
 -- ============================================================
--- 2. dex.price_ticks — Historical price snapshots
+-- 2. dex.price_ticks — Historical price snapshots (Hypertable)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS dex.price_ticks (
     pool_id      BIGINT NOT NULL,
     token_id     BIGINT NOT NULL,
     price_in_zig NUMERIC(38,18),
-    ts           TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (pool_id, token_id, ts)
+    price_in_usd NUMERIC(38,18),
+    ts           TIMESTAMPTZ NOT NULL
 );
+
+SELECT create_hypertable('dex.price_ticks', by_range('ts'), if_not_exists => TRUE);
 
 CREATE INDEX IF NOT EXISTS idx_dex_price_ticks_ts ON dex.price_ticks(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_dex_price_ticks_token ON dex.price_ticks(token_id, ts DESC);
 
 -- ============================================================
--- 3. dex.exchange_rates — ZIG/USD rate from oracle
+-- 3. dex.exchange_rates — ZIG/USD rate from oracle (Hypertable)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS dex.exchange_rates (
     ts      TIMESTAMPTZ NOT NULL PRIMARY KEY,
     zig_usd NUMERIC(38,8) NOT NULL
 );
+
+SELECT create_hypertable('dex.exchange_rates', by_range('ts'), if_not_exists => TRUE);
 
 CREATE INDEX IF NOT EXISTS idx_dex_exchange_rates_ts ON dex.exchange_rates(ts DESC);
 
@@ -54,27 +59,30 @@ CREATE TABLE IF NOT EXISTS dex.external_prices (
 );
 
 -- ============================================================
--- 5. dex.ohlcv_1m — 1-minute OHLCV candles (MATERIALIZED VIEW)
---    Refreshed periodically by job, NOT a continuous aggregate.
+-- 5. dex.ohlcv_1m — 1-minute OHLCV candles (Continuous Aggregate)
 -- ============================================================
-CREATE MATERIALIZED VIEW IF NOT EXISTS dex.ohlcv_1m AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS dex.ohlcv_1m 
+WITH (timescaledb.continuous) AS
 SELECT
     pool_id,
-    date_trunc('minute', created_at)    AS bucket_start,
-    (ARRAY_AGG(price_in_zig ORDER BY created_at ASC))[1]  AS open,
-    MAX(price_in_zig)                 AS high,
-    MIN(price_in_zig)                 AS low,
-    (ARRAY_AGG(price_in_zig ORDER BY created_at DESC))[1] AS close,
-    SUM(offer_amount_base)              AS volume_base,
-    SUM(return_amount_base)             AS volume_quote,
-    COUNT(*)                            AS trade_count
+    time_bucket('1 minute', created_at) AS bucket_start,
+    first(price_in_zig, created_at)   AS open,
+    max(price_in_zig)                 AS high,
+    min(price_in_zig)                 AS low,
+    last(price_in_zig, created_at)    AS close,
+    sum(offer_amount_base)              AS volume_base,
+    sum(return_amount_base)             AS volume_quote,
+    count(*)                            AS trade_count
 FROM dex.trades
 WHERE action = 'swap' AND price_in_zig IS NOT NULL
-GROUP BY pool_id, date_trunc('minute', created_at)
-WITH NO DATA;
+GROUP BY pool_id, time_bucket('1 minute', created_at);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_ohlcv_1m_pk ON dex.ohlcv_1m(pool_id, bucket_start);
-CREATE INDEX IF NOT EXISTS idx_ohlcv_1m_bucket   ON dex.ohlcv_1m(bucket_start DESC);
+-- Refresh policy: refresh the last 2 hours of data every 1 minute
+SELECT add_continuous_aggregate_policy('dex.ohlcv_1m',
+    start_offset => INTERVAL '2 hours',
+    end_offset => INTERVAL '1 minute',
+    schedule_interval => INTERVAL '1 minute',
+    if_not_exists => TRUE);
 
 -- ============================================================
 -- 6. dex.ohlcv_1m_usd — USD-denominated OHLCV view

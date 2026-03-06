@@ -30,6 +30,18 @@ import { runStorkOracle } from './jobs/stork-oracle.js';
 import { runMatrixRoller } from './jobs/matrix-roller.js';
 import { runExternalPrices } from './jobs/external-prices.js';
 
+// ✅ DEX Phase 4: Wallet analytics jobs
+import { runWalletRoller } from './jobs/wallet-roller.js';
+import { runLeaderboard } from './jobs/leaderboard.js';
+import { runLargeTradeDetector } from './jobs/large-trade-detector.js';
+import { runPortfolioSnapshot } from './jobs/portfolio-snapshot.js';
+
+// ✅ DEX Phase 5: User features jobs
+import { runAlertEvaluator } from './jobs/alert-evaluator.js';
+import { runTwitterScraper } from './jobs/twitter-scraper.js';
+import { runTokenSecurity } from './jobs/token-security.js';
+import { runIbcMarketRefresher } from './jobs/ibc-market-refresher.js';
+
 EventEmitter.defaultMaxListeners = 0;
 const log = getLogger('index');
 
@@ -345,9 +357,21 @@ async function main() {
         const pgPool = getPgPool();
         jobScheduler = new JobScheduler(pgPool);
         jobScheduler.register({ name: 'price-ticker', intervalMs: 30_000, fn: runPriceTicker });
-        jobScheduler.register({ name: 'stork-oracle', intervalMs: 600_000, fn: runStorkOracle }); // 10 mins (144/day)
+        jobScheduler.register({ name: 'stork-oracle', intervalMs: 600_000, fn: runStorkOracle }); // 10 mins (Point 8)
         jobScheduler.register({ name: 'matrix-roller', intervalMs: 300_000, fn: runMatrixRoller });
-        jobScheduler.register({ name: 'external-prices', intervalMs: 1_800_000, fn: runExternalPrices }); // 30 mins (48/day)
+        jobScheduler.register({ name: 'external-prices', intervalMs: 900_000, fn: runExternalPrices }); // 15 mins (Point 8)
+
+        // ✅ DEX Phase 4: Wallet analytics jobs
+        jobScheduler.register({ name: 'wallet-roller', intervalMs: 60_000, fn: runWalletRoller });
+        jobScheduler.register({ name: 'leaderboard', intervalMs: 300_000, fn: runLeaderboard });
+        jobScheduler.register({ name: 'large-trade-detector', intervalMs: 60_000, fn: runLargeTradeDetector });
+        jobScheduler.register({ name: 'portfolio-snapshot', intervalMs: 86_400_000, fn: runPortfolioSnapshot });
+
+        // ✅ DEX Phase 5: User features jobs
+        jobScheduler.register({ name: 'alert-evaluator', intervalMs: 30_000, fn: runAlertEvaluator });
+        jobScheduler.register({ name: 'twitter-scraper', intervalMs: 21_600_000, fn: runTwitterScraper });  // 6h
+        jobScheduler.register({ name: 'token-security', intervalMs: 3_600_000, fn: runTokenSecurity });   // 1h
+        jobScheduler.register({ name: 'ibc-market-refresher', intervalMs: 3_600_000, fn: runIbcMarketRefresher }); // 1h
       }
 
       await followLoop(rpc, decodePool, sink, {

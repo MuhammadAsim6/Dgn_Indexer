@@ -2622,12 +2622,17 @@ export class PostgresSink implements Sink {
       }
 
       await client.query(`
-        INSERT INTO dex.ibc_tokens (token_id, ibc_denom, base_denom, channel, port)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO dex.ibc_tokens (token_id, ibc_denom, base_denom, channel, port, source_chain)
+        SELECT $1, $2, $3, $4, $5, cl.chain_id
+        FROM (SELECT 1) AS dummy
+        LEFT JOIN ibc.channels ch ON ch.channel_id = $4 AND ch.port_id = $5
+        LEFT JOIN ibc.connections co ON co.connection_id = ch.connection_hops[1]
+        LEFT JOIN ibc.clients cl ON cl.client_id = co.client_id
         ON CONFLICT (ibc_denom) DO UPDATE SET
           base_denom = COALESCE(EXCLUDED.base_denom, dex.ibc_tokens.base_denom),
           channel = COALESCE(EXCLUDED.channel, dex.ibc_tokens.channel),
           port = COALESCE(EXCLUDED.port, dex.ibc_tokens.port),
+          source_chain = COALESCE(EXCLUDED.source_chain, dex.ibc_tokens.source_chain),
           updated_at = NOW()
       `, [tokenId, r.hash, r.base_denom, channel, port]);
     }

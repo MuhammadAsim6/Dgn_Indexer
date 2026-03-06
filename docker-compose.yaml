@@ -1,13 +1,14 @@
 services:
   db:
-    image: postgres:${PG_VERSION}
+    image: timescale/timescaledb:latest-pg18
     container_name: cosmosindexer
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 30
+      start_period: 60s
     environment:
       # Official postgres envs used by the image during init:
       # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD are REQUIRED to create the DB and user.
@@ -17,12 +18,15 @@ services:
       POSTGRES_PASSWORD: ${PG_PASSWORD}
       POSTGRES_INITDB_ARGS: ${PG_INITDB_ARGS}
       PGPASSWORD: ${PG_PASSWORD}         # <--- ADD THIS (Used by the Entrypoint Script)
+      PGDATABASE: ${PG_DB}
+      PGUSERNAME: ${PG_USER}
     ports:
       - "127.0.0.1:${PG_PORT:-5432}:5432"
     volumes:
       # ✅ CUSTOM CONFIG: Load optimized settings
       - ./custom_postgres.conf:/etc/postgresql/postgresql.conf:ro
-      - "/media/asim/ubuntu v22/indexer-data:/var/lib/postgresql"
+      # for custom data directory- "/media/asim/ubuntu v2/indexer-data:/var/lib/postgresql"
+      - pg-data:/var/lib/postgresql
       # ✅ INIT SCRIPTS: Auto-run SQL files in ./initdb on fresh start
       - ./initdb:/docker-entrypoint-initdb.d:ro
       
@@ -65,6 +69,6 @@ services:
       - "../indexer-data:/usr/src/app/indexer-data"
       - "./genesis.json:/usr/src/app/genesis.json:ro"
 
+volumes:
+  pg-data:
 
-# volumes:
-#   pg-data_cosmosindexer:

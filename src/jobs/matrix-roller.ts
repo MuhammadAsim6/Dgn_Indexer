@@ -91,15 +91,7 @@ export async function runMatrixRoller(pool: Pool): Promise<void> {
 
         await client.query('COMMIT');
         
-        // 4. Refresh OHLCV materialized view (OUTSIDE transaction)
-        try {
-            await client.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY dex.ohlcv_1m`);
-        } catch (refreshErr: any) {
-            log.warn(`[matrix-roller] concurrent refresh failed, retrying normally: ${refreshErr.message}`);
-            await client.query(`REFRESH MATERIALIZED VIEW dex.ohlcv_1m`);
-        }
-
-        log.info(`[matrix-roller] completed pool_matrix, token_matrix, ohlcv_1m, holder_stats`);
+        log.info(`[matrix-roller] completed pool_matrix, token_matrix, holder_stats`);
     } catch (err: any) {
         if (client) {
             try { await client.query('ROLLBACK'); } catch { /* ignore */ }

@@ -21,6 +21,7 @@ export async function deriveAndUpsertPrices(
     // 1. Upsert dex.prices from latest swap trades per pool
     //    For each pool, take the most recent trade's price_in_quote.
     //    If the quote is uzig → price_in_zig = price_in_quote directly.
+    //    (Point 2: Also calculate price_in_usd)
     const result = await client.query(`
     WITH latest_swaps AS (
       SELECT DISTINCT ON (t.pool_id)
@@ -32,18 +33,24 @@ export async function deriveAndUpsertPrices(
       JOIN dex.pools p ON p.pool_id = t.pool_id
       WHERE t.action = 'swap' AND t.price_in_quote IS NOT NULL AND t.pool_id IS NOT NULL
       ORDER BY t.pool_id, t.created_at DESC, t.trade_id DESC
+    ),
+    latest_zig_usd AS (
+      SELECT zig_usd FROM dex.exchange_rates ORDER BY ts DESC LIMIT 1
     )
-    INSERT INTO dex.prices (token_id, pool_id, price_in_zig, is_pair_native, updated_at)
+    INSERT INTO dex.prices (token_id, pool_id, price_in_zig, price_in_usd, is_pair_native, updated_at)
     SELECT
       ls.token_id,
       ls.pool_id,
       CASE WHEN ls.is_uzig_quote THEN ls.price_in_quote ELSE NULL END,
+      CASE WHEN ls.is_uzig_quote THEN ls.price_in_quote * lzu.zig_usd ELSE NULL END,
       COALESCE(ls.is_uzig_quote, FALSE),
       NOW()
     FROM latest_swaps ls
+    LEFT JOIN latest_zig_usd lzu ON TRUE
     WHERE ls.token_id IS NOT NULL
     ON CONFLICT (token_id, pool_id) DO UPDATE SET
       price_in_zig   = COALESCE(EXCLUDED.price_in_zig, dex.prices.price_in_zig),
+      price_in_usd   = COALESCE(EXCLUDED.price_in_usd, dex.prices.price_in_usd),
       is_pair_native = COALESCE(EXCLUDED.is_pair_native, dex.prices.is_pair_native),
       updated_at     = NOW()
   `);
@@ -74,6 +81,24 @@ export async function deriveAndUpsertPrices(
       AND t.price_in_zig IS NULL
       AND t.price_in_quote IS NOT NULL
       AND t.action = 'swap'
+      AND t.created_at > NOW() - INTERVAL '1 hour'
+  `);
+
+    // 4. (Point 3) Backfill value_in_zig and value_in_usd on trades
+    //    value_in_zig = amount_base * price_in_zig
+    await client.query(`
+    UPDATE dex.trades t
+    SET 
+      value_in_zig = (CASE 
+        WHEN t.direction = 'buy' THEN t.return_amount_base 
+        ELSE t.offer_amount_base 
+      END) * t.price_in_zig,
+      value_in_usd = (CASE 
+        WHEN t.direction = 'buy' THEN t.return_amount_base 
+        ELSE t.offer_amount_base 
+      END) * t.price_in_zig * (SELECT zig_usd FROM dex.exchange_rates ORDER BY ts DESC LIMIT 1)
+    WHERE t.price_in_zig IS NOT NULL 
+      AND t.value_in_zig IS NULL
       AND t.created_at > NOW() - INTERVAL '1 hour'
   `);
 

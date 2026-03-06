@@ -10,8 +10,8 @@ export async function runPriceTicker(pool: Pool): Promise<void> {
     const client = await pool.connect();
     try {
         const result = await client.query(`
-      INSERT INTO dex.price_ticks (pool_id, token_id, price_in_zig, ts)
-      SELECT pool_id, token_id, price_in_zig, NOW()
+      INSERT INTO dex.price_ticks (pool_id, token_id, price_in_zig, price_in_usd, ts)
+      SELECT pool_id, token_id, price_in_zig, price_in_usd, NOW()
       FROM dex.prices
       WHERE price_in_zig IS NOT NULL
     `);
