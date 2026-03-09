@@ -1,5 +1,5 @@
 import type { PoolClient } from 'pg';
-import { makeMultiInsert } from '../batch.js';
+import { execBatchedInsert } from '../batch.js';
 import { getLogger } from '../../../utils/logger.js';
 
 const log = getLogger('sink/pg/inserters/bank');
@@ -56,7 +56,8 @@ export async function insertBalanceDeltas(client: PoolClient, rows: any[], opts?
     const uniqueRows = Array.from(aggregated.values());
     const cols = ['height', 'account', 'denom', 'token_id', 'delta'];
 
-    const { text, values } = makeMultiInsert(
+    await execBatchedInsert(
+        client,
         'bank.balance_deltas',
         cols,
         uniqueRows,
@@ -64,17 +65,8 @@ export async function insertBalanceDeltas(client: PoolClient, rows: any[], opts?
             ? 'ON CONFLICT (height, account, denom) DO UPDATE SET delta = COALESCE(bank.balance_deltas.delta, 0) + COALESCE(EXCLUDED.delta, 0)'
             : 'ON CONFLICT (height, account, denom) DO NOTHING'
     );
-    const res = await client.query(text, values);
 
-    const inserted = Number(res.rowCount ?? 0);
-    const conflicts = Math.max(0, uniqueRows.length - inserted);
-    if (mode === 'idempotent' && conflicts > 0) {
-        log.warn(
-            `[bank] idempotent conflict skip: input=${rows.length} aggregated=${uniqueRows.length} inserted=${inserted} skipped=${conflicts}`,
-        );
-    } else {
-        log.debug(
-            `[bank] inserted balance deltas (${mode}): input=${rows.length} aggregated=${uniqueRows.length} affected=${inserted}`,
-        );
-    }
+    log.debug(
+        `[bank] inserted balance deltas (${mode}): input=${rows.length} aggregated=${uniqueRows.length}`,
+    );
 }
