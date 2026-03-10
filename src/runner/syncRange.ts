@@ -186,22 +186,23 @@ export async function syncRange(
    */
   async function processHeight(h: number) {
     try {
-      const [b, br] = await Promise.all([
-        withTimeout(rpc.fetchBlock(h), blockTimeoutMs, `fetchBlock@${h}`),
-        withTimeout(rpc.fetchBlockResults(h), blockTimeoutMs, `fetchBlockResults@${h}`),
+      const blockPromise = withTimeout(rpc.fetchBlock(h), blockTimeoutMs, `fetchBlock@${h}`);
+      const resultsPromise = withTimeout(rpc.fetchBlockResults(h), blockTimeoutMs, `fetchBlockResults@${h}`);
+      const validatorsPromise = fetchCometValidatorsAtHeight(rpc as any, h, blockTimeoutMs);
+
+      const [b, br, validators] = await Promise.all([
+        blockPromise,
+        resultsPromise,
+        validatorsPromise.catch(err => {
+          log.warn(`[processHeight] failed to fetch validators at ${h}: ${err.message}`);
+          return [];
+        })
       ]);
 
-      const validatorsPromise = fetchCometValidatorsAtHeight(rpc as any, h, blockTimeoutMs);
       const txsB64: string[] = b?.block?.data?.txs ?? [];
       const decoded = await Promise.all(
         txsB64.map((x, i) => withTimeout(pool.submit(x), blockTimeoutMs, `decode#${i}@${h}`)),
       );
-      let validators: any[] = [];
-      try {
-        validators = await validatorsPromise;
-      } catch (err: any) {
-        log.warn(`[validators] fetch failed at height=${h}: ${String(err?.message ?? err)}`);
-      }
       const assembled = await withTimeout(
         assembleBlockJsonFromParts(rpc, b, br, decoded, caseMode, validators),
         blockTimeoutMs,

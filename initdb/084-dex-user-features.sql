@@ -151,8 +151,8 @@ CREATE TABLE IF NOT EXISTS dex.token_security (
 -- ============================================================
 CREATE TABLE IF NOT EXISTS dex.ibc_token_stats (
     token_id           BIGINT      PRIMARY KEY REFERENCES tokens.registry(token_id),
-    price_usd          NUMERIC(38,18),
-    market_cap_usd     NUMERIC(38,8),
+    price_usd          NUMERIC(78,18),
+    market_cap_usd     NUMERIC(78,18),
     circulating_supply NUMERIC(78,0),
     total_supply       NUMERIC(78,0),
     last_updated       TIMESTAMPTZ DEFAULT NOW()

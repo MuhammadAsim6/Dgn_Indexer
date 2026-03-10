@@ -122,10 +122,11 @@ CREATE TABLE IF NOT EXISTS dex.pool_matrix (
 CREATE TABLE IF NOT EXISTS dex.token_matrix (
     token_id     BIGINT NOT NULL REFERENCES tokens.registry(token_id),
     bucket       dex.wallet_window NOT NULL,
-    price_in_zig NUMERIC(38,18),
-    mcap_zig     NUMERIC(38,8),
-    fdv_zig      NUMERIC(38,8),
-    holders      BIGINT,
+    tvl_zig              NUMERIC(78,18),
+    mcap_zig             NUMERIC(78,18),
+    fdv_zig              NUMERIC(78,18),
+    vol_buy_zig          NUMERIC(78,18),
+    vol_sell_zig         NUMERIC(78,18),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (token_id, bucket)
 );

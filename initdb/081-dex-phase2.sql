@@ -27,11 +27,11 @@ CREATE TABLE IF NOT EXISTS dex.trades (
     tx_hash              TEXT        NOT NULL,
     signer               TEXT,
     created_at           TIMESTAMPTZ NOT NULL,
-    price_in_quote       NUMERIC(38,18),
-    price_in_zig         NUMERIC(38,18),
-    price_in_usd         NUMERIC(38,18),
-    value_in_zig         NUMERIC(38,8),
-    value_in_usd         NUMERIC(38,8),
+    price_in_quote       NUMERIC(78,18),
+    price_in_zig         NUMERIC(78,18),
+    price_in_usd         NUMERIC(78,18),
+    value_in_zig         NUMERIC(78,18),
+    value_in_usd         NUMERIC(78,18),
     PRIMARY KEY (trade_id, created_at),
     -- Unique constraint for application deduplication
     CONSTRAINT dex_trades_upsert_key UNIQUE (tx_hash, source_kind, msg_index, event_index, created_at)

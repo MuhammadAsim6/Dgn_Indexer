@@ -45,6 +45,17 @@ import { runIbcMarketRefresher } from './jobs/ibc-market-refresher.js';
 EventEmitter.defaultMaxListeners = 0;
 const log = getLogger('index');
 
+// ✅ ADDED: Global error handlers to prevent process crash from transient RPC/Fetch errors
+process.on('unhandledRejection', (reason, promise) => {
+  log.error('[process] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  log.error('[process] Uncaught Exception:', err.message, err.stack);
+  // Optional: only exit if it's a critical system error.
+  // For fetch/network errors, we prefer to stay alive.
+});
+
 function normalizeNonEmptyString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();

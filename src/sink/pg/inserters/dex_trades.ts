@@ -81,14 +81,15 @@ export async function insertDexTrades(
         else if (s.token_in_denom === poolInfo.base_denom) direction = 'sell'; // selling base for quote = sell
 
         // Calculate price_in_quote
-        let priceInQuote: number | null = null;
+        let priceInQuote: string | null = null;
         if (tokenInAmount > 0n && tokenOutAmount > 0n) {
+            // Use high-precision division (8 decimals for safety, then pass as string)
             if (direction === 'buy') {
                 // price = quote_paid / base_received
-                priceInQuote = Number(tokenInAmount) / Number(tokenOutAmount);
+                priceInQuote = (Number(tokenInAmount * 100000000n / tokenOutAmount) / 100000000).toFixed(18);
             } else if (direction === 'sell') {
                 // price = quote_received / base_sold
-                priceInQuote = Number(tokenOutAmount) / Number(tokenInAmount);
+                priceInQuote = (Number(tokenOutAmount * 100000000n / tokenInAmount) / 100000000).toFixed(18);
             }
         }
 
@@ -131,13 +132,16 @@ export async function insertDexTrades(
         }
 
         // Derive price if not provided
-        let priceInQuote: number | null = s.effective_price ?? s.price_in_quote ?? null;
+        let priceInQuote: string | null = s.effective_price || s.price_in_quote ? String(s.effective_price ?? s.price_in_quote) : null;
         if (!priceInQuote && poolInfo && direction) {
             const offerAmount = BigInt(String(s.offer_amount ?? '0'));
             const returnAmount = BigInt(String(s.return_amount ?? '0'));
             if (offerAmount > 0n && returnAmount > 0n) {
-                if (direction === 'buy') priceInQuote = Number(offerAmount) / Number(returnAmount);
-                else if (direction === 'sell') priceInQuote = Number(returnAmount) / Number(offerAmount);
+                if (direction === 'buy') {
+                    priceInQuote = (Number(offerAmount * 100000000n / returnAmount) / 100000000).toFixed(18);
+                } else if (direction === 'sell') {
+                    priceInQuote = (Number(returnAmount * 100000000n / offerAmount) / 100000000).toFixed(18);
+                }
             }
         }
 

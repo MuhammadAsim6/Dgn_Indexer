@@ -35,14 +35,14 @@ CREATE TABLE IF NOT EXISTS dex.wallet_activities (
     token_out_id     BIGINT,
     amount_in_base   NUMERIC(78,0),
     amount_out_base  NUMERIC(78,0),
-    price_in_zig     NUMERIC(38,18),
-    price_in_usd     NUMERIC(38,18),
-    value_zig        NUMERIC(38,8),
-    value_usd        NUMERIC(38,8),
+    price_in_zig     NUMERIC(78,18),
+    price_in_usd     NUMERIC(78,18),
+    value_zig        NUMERIC(78,18),
+    value_usd        NUMERIC(78,18),
     tx_hash          TEXT         NOT NULL,
     msg_index        INT,
-    realized_pnl_zig NUMERIC(38,8),
-    realized_pnl_usd NUMERIC(38,8),
+    realized_pnl_zig NUMERIC(78,18),
+    realized_pnl_usd NUMERIC(78,18),
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     PRIMARY KEY (activity_id, trade_created_at)
 );
@@ -60,10 +60,10 @@ CREATE TABLE IF NOT EXISTS dex.wallet_token_positions (
     wallet_id        BIGINT       NOT NULL REFERENCES dex.wallets(wallet_id),
     token_id         BIGINT       NOT NULL REFERENCES tokens.registry(token_id),
     amount_base      NUMERIC(78,0) DEFAULT 0,
-    cost_basis_zig   NUMERIC(38,8),
-    cost_basis_usd   NUMERIC(38,8),
-    realized_pnl_zig NUMERIC(38,8),
-    realized_pnl_usd NUMERIC(38,8),
+    cost_basis_zig   NUMERIC(78,18),
+    cost_basis_usd   NUMERIC(78,18),
+    realized_pnl_zig NUMERIC(78,18),
+    realized_pnl_usd NUMERIC(78,18),
     first_buy_at     TIMESTAMPTZ,
     last_trade_at    TIMESTAMPTZ,
     updated_at       TIMESTAMPTZ  DEFAULT NOW(),
@@ -79,12 +79,12 @@ CREATE TABLE IF NOT EXISTS dex.wallet_stats_window (
     wallet_id           BIGINT       NOT NULL REFERENCES dex.wallets(wallet_id),
     win                 dex.wallet_window NOT NULL,
     as_of               TIMESTAMPTZ,
-    volume_zig          NUMERIC(38,8),
-    volume_usd          NUMERIC(38,8),
+    volume_zig          NUMERIC(78,18),
+    volume_usd          NUMERIC(78,18),
     tx_count            BIGINT,
-    realized_pnl_usd    NUMERIC(38,8),
+    realized_pnl_usd    NUMERIC(78,18),
     win_rate            NUMERIC(10,4),
-    portfolio_value_usd NUMERIC(38,8),
+    portfolio_value_usd NUMERIC(78,18),
     PRIMARY KEY (wallet_id, win)
 );
 
@@ -97,11 +97,11 @@ CREATE TABLE IF NOT EXISTS dex.wallet_token_stats_window (
     win              dex.wallet_window NOT NULL,
     as_of            TIMESTAMPTZ,
     tx_count         BIGINT,
-    volume_usd       NUMERIC(38,8),
-    bought_usd       NUMERIC(38,8),
-    sold_usd         NUMERIC(38,8),
-    realized_pnl_usd NUMERIC(38,8),
-    avg_cost_usd     NUMERIC(38,18),
+    volume_usd       NUMERIC(78,18),
+    bought_usd       NUMERIC(78,18),
+    sold_usd         NUMERIC(78,18),
+    realized_pnl_usd NUMERIC(78,18),
+    avg_cost_usd     NUMERIC(78,18),
     PRIMARY KEY (wallet_id, token_id, win)
 );
 
@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS dex.wallet_dirty (
 CREATE TABLE IF NOT EXISTS dex.wallet_portfolio_snapshots (
     wallet_id BIGINT      NOT NULL REFERENCES dex.wallets(wallet_id),
     ts        TIMESTAMPTZ NOT NULL,
-    value_usd NUMERIC(38,8),
+    value_usd NUMERIC(78,18),
     PRIMARY KEY (wallet_id, ts)
 );
 
@@ -132,8 +132,8 @@ CREATE TABLE IF NOT EXISTS dex.leaderboard_traders (
     bucket        dex.wallet_window NOT NULL,
     address       TEXT              NOT NULL,
     trades_count  BIGINT            DEFAULT 0,
-    volume_zig    NUMERIC(38,8)     DEFAULT 0,
-    gross_pnl_zig NUMERIC(38,8)     DEFAULT 0,
+    volume_zig    NUMERIC(78,18)     DEFAULT 0,
+    gross_pnl_zig NUMERIC(78,18)     DEFAULT 0,
     updated_at    TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
     PRIMARY KEY (bucket, address)
 );
@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS dex.large_trades (
     pool_id     BIGINT      REFERENCES dex.pools(pool_id),
     tx_hash     TEXT        NOT NULL,
     signer      TEXT,
-    value_zig   NUMERIC(38,8),
+    value_zig   NUMERIC(78,18),
     direction   dex.trade_direction,
     created_at  TIMESTAMPTZ NOT NULL,
     inserted_at TIMESTAMPTZ DEFAULT NOW()
