@@ -26,18 +26,6 @@ DROP INDEX IF EXISTS tokens.idx_factory_supply_action;
 -- STEP 2: CREATE improved composite replacements
 -- ============================================================================
 
--- core.events: (event_type, height DESC) replaces (event_type, msg_index)
-CREATE INDEX IF NOT EXISTS idx_events_type_height
-  ON core.events (event_type, height DESC);
-
--- core.events: lookup by tx_hash
-CREATE INDEX IF NOT EXISTS idx_events_tx_hash
-  ON core.events (tx_hash, height DESC);
-
--- core.event_attrs: (key, height DESC) replaces (key)
-CREATE INDEX IF NOT EXISTS idx_event_attrs_key_height
-  ON core.event_attrs (key, height DESC);
-
 -- zigchain.dex_swaps: composite replacements
 CREATE INDEX IF NOT EXISTS idx_dex_swaps_pool_height
   ON zigchain.dex_swaps (pool_id, block_height DESC);

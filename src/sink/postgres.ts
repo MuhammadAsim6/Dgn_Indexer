@@ -32,9 +32,6 @@ import {
 // Standard Flushers
 import { flushBlocks } from './pg/flushers/blocks.js';
 import { flushTxs } from './pg/flushers/txs.js';
-import { flushMsgs } from './pg/flushers/msgs.js';
-import { flushEvents } from './pg/flushers/events.js';
-import { flushAttrs } from './pg/flushers/attrs.js';
 import { flushTransfers } from './pg/flushers/transfers.js';
 import { flushWasmExec } from './pg/flushers/wasm_exec.js';
 import { flushWasmEvents } from './pg/flushers/wasm_events.js';
@@ -393,9 +390,7 @@ export interface PostgresSinkConfig extends SinkConfig {
   batchSizes?: {
     blocks?: number;
     txs?: number;
-    msgs?: number;
-    events?: number;
-    attrs?: number;
+    zigchain?: number;
   };
 }
 
@@ -413,9 +408,6 @@ export class PostgresSink implements Sink {
   // Standard Buffers
   private bufBlocks: any[] = [];
   private bufTxs: any[] = [];
-  private bufMsgs: any[] = [];
-  private bufEvents: any[] = [];
-  private bufAttrs: any[] = [];
   private bufTransfers: any[] = [];
   private bufWasmExec: any[] = [];
   private bufWasmEvents: any[] = [];
@@ -463,9 +455,6 @@ export class PostgresSink implements Sink {
   private batchSizes = {
     blocks: 1000,
     txs: 2000,
-    msgs: 5000,
-    events: 5000,
-    attrs: 10000,
     transfers: 5000,
     wasmExec: 5000,
     wasmEvents: 5000,
@@ -786,9 +775,6 @@ export class PostgresSink implements Sink {
 
     // ✅ Define ALL row arrays at the top to fix scope issues
     const txRows: any[] = [];
-    const msgRows: any[] = [];
-    const evRows: any[] = [];
-    const attrRows: any[] = [];
     const transfersRows: any[] = [];
     let droppedTransferRows = 0;
 
@@ -1115,11 +1101,6 @@ export class PostgresSink implements Sink {
           log.warn(`[quarantine] Unknown message type: ${type} at height ${height} `);
           continue;  // Skip domain table processing for this message
         }
-
-        msgRows.push({
-          tx_hash, msg_index: i, height, type_url: type, value: m,
-          signer: pickSigner(m),
-        });
 
         const msgLog = logMap.get(i) || logMap.get(-1); // Fallback to flat log if per-msg missing
 
@@ -1687,11 +1668,6 @@ export class PostgresSink implements Sink {
           const ev = events[ei];
           const event_type = String(ev?.type ?? 'unknown');
           const attrsPairs = attrsToPairs(ev?.attributes);
-
-          evRows.push({
-            tx_hash, msg_index, event_index: ei, event_type,
-            attributes: attrsPairs, height
-          });
 
           const contract = findAttr(attrsPairs, 'contract_address') || findAttr(attrsPairs, '_contract_address');
           const action = findAttr(attrsPairs, 'action');
@@ -2296,13 +2272,6 @@ export class PostgresSink implements Sink {
           }
 
           // Specialized WASM Analytics for Oracles/Tokens removed (not needed for Zigchain)
-
-          for (let ai = 0; ai < attrsPairs.length; ai++) {
-            const attr = attrsPairs[ai];
-            if (!attr) continue;
-            const { key, value } = attr;
-            attrRows.push({ tx_hash, msg_index, event_index: ei, attr_index: ai, key, value, height });
-          }
         }
       }
 
@@ -2383,7 +2352,7 @@ export class PostgresSink implements Sink {
     const tokenRegistryRows = Array.from(tokenRegistryByDenom.values());
 
     return {
-      blockRow, txRows, msgRows, evRows, attrRows,
+      blockRow, txRows,
       transfersRows, wasmExecRows, wasmEventsRows,
       ibcPacketsRows, // 👈 Returning IBC Data
       ibcChannelsRows,
@@ -2409,9 +2378,6 @@ export class PostgresSink implements Sink {
 
     this.bufBlocks.push(data.blockRow);
     this.bufTxs.push(...data.txRows);
-    this.bufMsgs.push(...data.msgRows);
-    this.bufEvents.push(...data.evRows);
-    this.bufAttrs.push(...data.attrRows);
     this.bufTransfers.push(...data.transfersRows);
 
     // Zigchain
@@ -2647,9 +2613,6 @@ export class PostgresSink implements Sink {
     const snapshot = {
       blocks: this.bufBlocks,
       txs: this.bufTxs,
-      msgs: this.bufMsgs,
-      events: this.bufEvents,
-      attrs: this.bufAttrs,
       transfers: this.bufTransfers,
       factoryDenoms: this.bufFactoryDenoms,
       dexPools: this.bufDexPools,
@@ -2681,7 +2644,7 @@ export class PostgresSink implements Sink {
     };
 
     // Reset all main buffers
-    this.bufBlocks = []; this.bufTxs = []; this.bufMsgs = []; this.bufEvents = []; this.bufAttrs = []; this.bufTransfers = [];
+    this.bufBlocks = []; this.bufTxs = []; this.bufTransfers = [];
     this.bufFactoryDenoms = []; this.bufDexPools = []; this.bufDexSwaps = []; this.bufDexLiquidity = [];
     this.bufWrapperSettings = []; this.bufWrapperEvents = [];
     this.bufWasmExec = []; this.bufWasmEvents = []; this.bufWasmEventAttrs = [];
@@ -2720,12 +2683,59 @@ export class PostgresSink implements Sink {
       // 1. Standard (core tables — no FK dependencies)
       await flushBlocks(client, snapshot.blocks);
       await flushTxs(client, snapshot.txs);
-      await flushMsgs(client, snapshot.msgs);
-      await flushEvents(client, snapshot.events);
-      await flushAttrs(client, snapshot.attrs);
 
       // ✅ DEX Phase 1: Flush token registry FIRST so denoms exist for token_id resolution
       await flushWasmSwaps(client, snapshot.wasmSwaps);
+
+      // ✅ Permanent Fix: Resolve IBC symbols from ibc.denoms before flushing registry
+      const ibcRegistryRows = snapshot.tokenRegistry.filter((r: any) => r.type === 'ibc' && r.symbol?.startsWith('ibc:'));
+      if (ibcRegistryRows.length > 0) {
+        const hashes = ibcRegistryRows.map((r: any) => r.denom);
+        const resolved = await client.query(`
+          SELECT hash, base_denom FROM ibc.denoms WHERE hash = ANY($1) AND base_denom IS NOT NULL
+        `, [hashes]);
+        
+        if (resolved.rows.length > 0) {
+          const resMap = new Map(resolved.rows.map((r: any) => [r.hash, r.base_denom]));
+          for (const row of ibcRegistryRows) {
+            const base = resMap.get(row.denom);
+            if (base) {
+              row.base_denom = base;
+              row.symbol = base.toUpperCase();
+            }
+          }
+        }
+
+        // ✅ Phase 2: RPC Fallback for still unresolved symbols
+        const unresolvedAfterDb = ibcRegistryRows.filter((r: any) => r.symbol?.startsWith('ibc:'));
+        if (unresolvedAfterDb.length > 0 && this.rpc) {
+          log.debug(`[token-registry] Phase 2: RPC fallback for ${unresolvedAfterDb.length} IBC denoms`);
+          for (const row of unresolvedAfterDb) {
+            try {
+              const trace = await this.rpc.fetchDenomTrace(row.denom);
+              if (trace && trace.base_denom) {
+                const base = trace.base_denom;
+                const fullPath = trace.path ? `${trace.path}/${base}` : base;
+                
+                row.base_denom = base;
+                row.symbol = base.toUpperCase();
+                
+                // Track for ibc.denoms table persistence so we don't RPC again
+                snapshot.ibcDenoms.push({
+                  hash: row.denom,
+                  full_path: fullPath,
+                  base_denom: base
+                });
+                
+                log.info(`[token-registry] resolved IBC via RPC: ${row.denom} -> ${base}`);
+              }
+            } catch (err: any) {
+              log.debug(`[token-registry] RPC resolution failed for ${row.denom}: ${err.message}`);
+            }
+          }
+        }
+      }
+
       await flushTokenRegistry(client, snapshot.tokenRegistry);
 
       // ✅ DEX Phase 1: Resolve token_ids for all denoms in bank rows BEFORE inserting them
@@ -2873,9 +2883,6 @@ export class PostgresSink implements Sink {
       // We prepend the snapshot data to the current buffers so they are included in the next retry.
       this.bufBlocks = [...snapshot.blocks, ...this.bufBlocks];
       this.bufTxs = [...snapshot.txs, ...this.bufTxs];
-      this.bufMsgs = [...snapshot.msgs, ...this.bufMsgs];
-      this.bufEvents = [...snapshot.events, ...this.bufEvents];
-      this.bufAttrs = [...snapshot.attrs, ...this.bufAttrs];
       this.bufTransfers = [...snapshot.transfers, ...this.bufTransfers];
       this.bufFactoryDenoms = [...snapshot.factoryDenoms, ...this.bufFactoryDenoms];
 

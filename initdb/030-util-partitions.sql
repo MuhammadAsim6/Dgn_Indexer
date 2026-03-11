@@ -12,9 +12,7 @@ CREATE TABLE IF NOT EXISTS util.height_part_ranges (
 
 -- Configuration: Partition sizes (customized per table)
 INSERT INTO util.height_part_ranges (schema_name, table_name, range_size) VALUES
- ('core', 'blocks', 500000), ('core', 'transactions', 500000), ('core', 'messages', 500000),
- ('core', 'events', 100000),  -- ✅ 1 lakh blocks for easier archival
- ('core', 'network_params', 500000), ('core', 'event_attrs', 100000),
+ ('core', 'blocks', 500000), ('core', 'transactions', 500000), ('core', 'network_params', 500000),
  ('bank', 'transfers', 500000), ('bank', 'balance_deltas', 500000),
  ('tokens', 'cw20_transfers', 500000),
  ('wasm', 'executions', 500000), ('wasm', 'events', 500000),
@@ -29,8 +27,7 @@ ON CONFLICT (schema_name, table_name) DO UPDATE SET range_size = EXCLUDED.range_
 -- Remove unused entries
 DELETE FROM util.height_part_ranges
 WHERE (schema_name, table_name) NOT IN (
-    ('core', 'blocks'), ('core', 'transactions'), ('core', 'messages'), ('core', 'events'),
-    ('core', 'network_params'), ('core', 'event_attrs'),
+    ('core', 'blocks'), ('core', 'transactions'), ('core', 'network_params'),
     ('bank', 'transfers'), ('bank', 'balance_deltas'),
     ('tokens', 'cw20_transfers'),
     ('wasm', 'executions'), ('wasm', 'events'), ('wasm', 'event_attrs'),

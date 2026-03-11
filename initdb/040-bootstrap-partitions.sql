@@ -40,8 +40,6 @@ DECLARE
 BEGIN
     FOR base_tbl IN
         SELECT 'core.transactions'::regclass
-        UNION ALL SELECT 'core.events'::regclass
-        UNION ALL SELECT 'core.event_attrs'::regclass
         UNION ALL SELECT 'zigchain.dex_swaps'::regclass     
         UNION ALL SELECT 'zigchain.dex_liquidity'::regclass 
         UNION ALL SELECT 'wasm.executions'::regclass        

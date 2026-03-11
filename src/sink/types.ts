@@ -55,17 +55,9 @@ export interface SinkConfig {
      */
     txs?: number;
     /**
-     * Number of messages per batch.
+     * Number of zigchain entries per batch.
      */
-    msgs?: number;
-    /**
-     * Number of events per batch.
-     */
-    events?: number;
-    /**
-     * Number of attributes per batch.
-     */
-    attrs?: number;
+    zigchain?: number;
   };
   /**
    * PostgreSQL-specific connection options.

@@ -14,9 +14,7 @@ export async function ensureCorePartitions(client: PoolClient, minHeight: number
   // Full list of partitioned tables (Range by Height)
   const tables = [
     // Core - ✅ events now uses RANGE (not HASH)
-    ['core', 'blocks'], ['core', 'transactions'], ['core', 'messages'], ['core', 'event_attrs'],
-    ['core', 'events'],  // ✅ CHANGED: Now RANGE partitioned for archival support
-    ['core', 'network_params'],
+    ['core', 'blocks'], ['core', 'transactions'], ['core', 'network_params'],
 
     // Modules
     ['bank', 'transfers'], ['bank', 'balance_deltas'],
@@ -36,8 +34,6 @@ export async function ensureCorePartitions(client: PoolClient, minHeight: number
   try {
     // Table-specific range sizes (must match util.height_part_ranges)
     const RANGE_SIZES: Record<string, number> = {
-      'core.events': 100000,
-      'core.event_attrs': 100000,
     };
     const DEFAULT_RANGE_SIZE = 500000;
 

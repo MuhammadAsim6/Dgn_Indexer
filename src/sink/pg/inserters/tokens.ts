@@ -197,8 +197,12 @@ export async function insertTokenRegistry(client: PoolClient, rows: any[]): Prom
         'type = CASE ' +
         'WHEN tokens.registry.type = \'native\' AND EXCLUDED.type <> \'native\' THEN EXCLUDED.type ' +
         'ELSE tokens.registry.type END, ' +
-        'base_denom = COALESCE(EXCLUDED.base_denom, tokens.registry.base_denom), ' +
-        'symbol = COALESCE(EXCLUDED.symbol, tokens.registry.symbol), ' +
+        'base_denom = CASE ' +
+        'WHEN EXCLUDED.base_denom IS NOT NULL AND tokens.registry.base_denom LIKE \'ibc/%\' THEN EXCLUDED.base_denom ' +
+        'ELSE COALESCE(EXCLUDED.base_denom, tokens.registry.base_denom) END, ' +
+        'symbol = CASE ' +
+        'WHEN EXCLUDED.symbol IS NOT NULL AND tokens.registry.symbol LIKE \'ibc:%\' THEN EXCLUDED.symbol ' +
+        'ELSE COALESCE(EXCLUDED.symbol, tokens.registry.symbol) END, ' +
         'decimals = CASE ' +
         'WHEN tokens.registry.type = \'native\' AND EXCLUDED.type <> \'native\' THEN EXCLUDED.decimals ' +
         'ELSE COALESCE(EXCLUDED.decimals, tokens.registry.decimals) END, ' +

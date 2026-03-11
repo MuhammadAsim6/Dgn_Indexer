@@ -442,3 +442,81 @@ export function decodeHexToJson(hex: string | null | undefined): any | null {
   }
 }
 
+// ✅ Attribute Serialization & Sanitization Helpers (Moved from inserters/events.ts)
+export const MAX_ATTR_VALUE_SIZE = 1_000_000;
+export const MAX_TOTAL_JSON_SIZE = 20_000_000;
+export const MAX_ATTR_COUNT = 10000;
+const PREVIEW_SIZE = 4096;
+
+/**
+ * Truncates large attribute values to prevent PostgreSQL index size errors.
+ */
+export function sanitizeAttributes(attributes: any[]): any[] {
+  if (!Array.isArray(attributes)) return attributes;
+
+  const limited = attributes.length > MAX_ATTR_COUNT
+    ? attributes.slice(0, MAX_ATTR_COUNT)
+    : attributes;
+
+  return limited.map((attr: any) => {
+    if (typeof attr?.value === 'string' && attr.value.length > MAX_ATTR_VALUE_SIZE) {
+      return {
+        key: attr.key,
+        value: attr.value.substring(0, MAX_ATTR_VALUE_SIZE) + '...[TRUNCATED]'
+      };
+    }
+    return attr;
+  });
+}
+
+/**
+ * Safely serializes attributes with a total size cap.
+ */
+export function safeSerializeAttributes(attributes: any): string {
+  if (attributes == null) return '[]';
+
+  if (typeof attributes === 'string') {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(attributes);
+    } catch {
+      const safeRaw = attributes.length > PREVIEW_SIZE ? attributes.slice(0, PREVIEW_SIZE) : attributes;
+      return JSON.stringify({
+        _non_json: true,
+        _raw: safeRaw,
+        _raw_length: attributes.length,
+      });
+    }
+    attributes = parsed;
+  }
+
+  if (Array.isArray(attributes) && attributes.length > MAX_ATTR_COUNT) {
+    const truncated = attributes.slice(0, MAX_ATTR_COUNT);
+    truncated.push({ key: '_truncated', value: `${attributes.length - MAX_ATTR_COUNT} more items...` });
+    const sanitized = sanitizeAttributes(truncated);
+    try {
+      return JSON.stringify(sanitized);
+    } catch {
+      return '{"error": "failed_to_serialize"}';
+    }
+  }
+
+  const sanitized = sanitizeAttributes(attributes);
+  let json: string;
+  try {
+    json = JSON.stringify(sanitized);
+  } catch {
+    return '{"error": "failed_to_serialize"}';
+  }
+
+  if (json.length > MAX_TOTAL_JSON_SIZE) {
+    return JSON.stringify({
+      _truncated: true,
+      _reason: 'max_total_size',
+      _original_length: json.length,
+      _preview: json.slice(0, PREVIEW_SIZE),
+    });
+  }
+
+  return json;
+}

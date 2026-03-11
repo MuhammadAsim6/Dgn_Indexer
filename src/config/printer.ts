@@ -61,9 +61,6 @@ export function printConfig(cfg: Config): void {
           batch: {
             blocks: cfg.pg.batchBlocks,
             txs: cfg.pg.batchTxs,
-            msgs: cfg.pg.batchMsgs,
-            events: cfg.pg.batchEvents,
-            attrs: cfg.pg.batchAttrs,
           },
           poolSize: cfg.pg.poolSize,
           progressId: cfg.pg.progressId,

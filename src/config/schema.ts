@@ -12,9 +12,6 @@ const PgConfigSchema = z.object({
   mode: z.enum(['batch-insert', 'block-atomic']).optional(),
   batchBlocks: z.number().int().positive(),
   batchTxs: z.number().int().positive(),
-  batchMsgs: z.number().int().positive(),
-  batchEvents: z.number().int().positive(),
-  batchAttrs: z.number().int().positive(),
   poolSize: z.number().int().positive(),
   progressId: z.string().min(1),
 });

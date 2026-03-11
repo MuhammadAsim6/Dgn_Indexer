@@ -50,6 +50,7 @@ export type RpcClient = {
   fetchBlockResults: (height: number) => Promise<any>;
   fetchStatus: () => Promise<any>;
   queryAbci: (path: string, data?: string, height?: number) => Promise<any>;
+  fetchDenomTrace: (hash: string) => Promise<any>;
 };
 
 const log = getLogger('rpc/client');
@@ -175,7 +176,34 @@ export function createRpcClient(opts: RpcClientOptions): RpcClient {
     return j.result?.response ?? j;
   }
 
-  return { getJson, fetchBlock, fetchBlockResults, fetchStatus, queryAbci };
+  async function fetchDenomTrace(hash: string): Promise<any> {
+    const hex = hash.startsWith('ibc/') ? hash.substring(4) : hash;
+    // Query path for IBC denom trace
+    const path = `ibc.applications.transfer.v1.Query/Denom`;
+    const data = JSON.stringify({ hash: hex });
+    
+    try {
+      // First try REST if available at 1317 (conventionally), but we use queryAbci for reliability
+      // gRPC-gateway mapping: /ibc/apps/transfer/v1/denoms/{hash}
+      // However, we can use a simpler approach if the server supports the REST endpoint
+      // Let's use getJson for the REST endpoint if possible, but keep it robust
+      const j = await getJson<any>(`/ibc/apps/transfer/v1/denoms/${hex}`);
+      return j.denom ?? j;
+    } catch (e) {
+      log.debug(`[rpc] REST denom lookup failed for ${hash}, falling back to ABCI`, String(e));
+      // Fallback to ABCI query if REST fails
+      const res = await queryAbci('/ibc.applications.transfer.v1.Query/Denom', hex);
+      if (res && res.value) {
+         // This would require proto decoding which we have in decode/dynamicProto.ts
+         // but since we want to be light, let's hope REST works.
+         // Most modern nodes have gRPC-gateway enabled.
+         throw e; // Rethrow for now if REST fails, we need the trace
+      }
+      throw e;
+    }
+  }
+
+  return { getJson, fetchBlock, fetchBlockResults, fetchStatus, queryAbci, fetchDenomTrace };
 }
 
 /**

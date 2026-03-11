@@ -61,40 +61,6 @@ CREATE TABLE IF NOT EXISTS core.transactions (
 CREATE TABLE IF NOT EXISTS core.transactions_p0 PARTITION OF core.transactions FOR VALUES FROM (0) TO (500000);
 CREATE INDEX IF NOT EXISTS idx_txs_hash ON core.transactions (tx_hash);
 
-CREATE TABLE IF NOT EXISTS core.messages (
-    tx_hash   TEXT   NOT NULL,
-    msg_index INT    NOT NULL,
-    height    BIGINT NOT NULL,
-    type_url  TEXT   NOT NULL,
-    value     JSONB  NOT NULL,
-    signer    TEXT   NULL,
-    PRIMARY KEY (height, tx_hash, msg_index)
-) PARTITION BY RANGE (height);
-CREATE TABLE IF NOT EXISTS core.messages_p0 PARTITION OF core.messages FOR VALUES FROM (0) TO (500000);
-
-CREATE TABLE core.events (
-    tx_hash     TEXT  NOT NULL,
-    msg_index   INT   NOT NULL,
-    event_index INT   NOT NULL,
-    event_type  TEXT  NOT NULL,
-    attributes  JSONB NOT NULL,
-    height      BIGINT NOT NULL,
-    PRIMARY KEY (height, tx_hash, msg_index, event_index)
-) PARTITION BY RANGE (height);
-CREATE TABLE IF NOT EXISTS core.events_p0 PARTITION OF core.events FOR VALUES FROM (0) TO (100000);
-
-CREATE TABLE core.event_attrs (
-    tx_hash     TEXT NOT NULL,
-    msg_index   INT  NOT NULL,
-    event_index INT  NOT NULL,
-    attr_index  INT  NOT NULL,
-    key         TEXT NOT NULL,
-    value       TEXT NULL,
-    height      BIGINT NOT NULL,
-    PRIMARY KEY (height, tx_hash, msg_index, event_index, attr_index)
-) PARTITION BY RANGE (height);
-CREATE TABLE IF NOT EXISTS core.event_attrs_p0 PARTITION OF core.event_attrs FOR VALUES FROM (0) TO (100000);
-
 -- Tracks heights that failed RPC fetch/processing after retries.
 CREATE TABLE IF NOT EXISTS core.missing_blocks (
     height      BIGINT PRIMARY KEY,
@@ -414,10 +380,6 @@ CREATE TABLE IF NOT EXISTS core.network_params_p0 PARTITION OF core.network_para
 -- Transfers by address (common API query)
 CREATE INDEX IF NOT EXISTS idx_transfers_from ON bank.transfers (from_addr, height DESC);
 CREATE INDEX IF NOT EXISTS idx_transfers_to ON bank.transfers (to_addr, height DESC);
-
--- Messages by type (explorer query)
-CREATE INDEX IF NOT EXISTS idx_messages_type ON core.messages (type_url, height DESC);
-CREATE INDEX IF NOT EXISTS idx_messages_signer ON core.messages (signer, height DESC);
 
 -- WASM by contract (dApp queries)
 CREATE INDEX IF NOT EXISTS idx_wasm_exec_contract ON wasm.executions (contract, height DESC);

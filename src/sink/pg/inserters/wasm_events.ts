@@ -1,6 +1,6 @@
 import type { PoolClient } from 'pg';
 import { execBatchedInsert } from '../batch.js';
-import { safeSerializeAttributes } from './events.js';
+import { safeSerializeAttributes } from '../parsing.js';
 
 export async function insertWasmEvents(client: PoolClient, rows: any[]): Promise<void> {
   if (!rows?.length) return;

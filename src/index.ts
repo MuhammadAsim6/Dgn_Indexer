@@ -164,9 +164,6 @@ async function main() {
       batchSizes: {
         blocks: cfg.pg?.batchBlocks,
         txs: cfg.pg?.batchTxs,
-        msgs: cfg.pg?.batchMsgs,
-        events: cfg.pg?.batchEvents,
-        attrs: cfg.pg?.batchAttrs,
       },
       rpcUrl: cfg.rpcUrl,
     });

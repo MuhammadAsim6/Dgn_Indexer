@@ -181,11 +181,6 @@ export function getConfig(): Config {
         ? Number(args['pg-batch-blocks'])
         : Number(process.env.PG_BATCH_BLOCKS ?? 1000),
       batchTxs: args['pg-batch-txs'] ? Number(args['pg-batch-txs']) : Number(process.env.PG_BATCH_TXS ?? 2000),
-      batchMsgs: args['pg-batch-msgs'] ? Number(args['pg-batch-msgs']) : Number(process.env.PG_BATCH_MSGS ?? 5000),
-      batchEvents: args['pg-batch-events']
-        ? Number(args['pg-batch-events'])
-        : Number(process.env.PG_BATCH_EVENTS ?? 500),
-      batchAttrs: args['pg-batch-attrs'] ? Number(args['pg-batch-attrs']) : Number(process.env.PG_BATCH_ATTRS ?? 1000),
       poolSize: asPositiveInt('pg-pool-size', (args['pg-pool-size'] as string) ?? process.env.PG_POOL_SIZE ?? 16, 16),
       progressId:
         (args['pg-progress-id'] as string | undefined) ??
