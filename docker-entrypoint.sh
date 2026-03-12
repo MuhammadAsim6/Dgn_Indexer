@@ -13,7 +13,7 @@ echo "[entrypoint] waiting for Postgres at ${host}:${port}..."
 
 # simple wait loop
 for i in {1..60}; do
-  if pg_isready -h "$host" -p "$port" -U "${PG_USER}" >/dev/null 2>&1; then
+  if pg_isready -h "$host" -p "$port" -U "${PG_USER}" -d "${PG_DB}" >/dev/null 2>&1; then
     echo "[entrypoint] Postgres is ready"
     break
   fi

@@ -1,6 +1,6 @@
 /**
  * Stork Oracle Job — Fetches ZIG/USD price from CoinMarketCap.
- * Uses CMC_API_KEY env var. Insertions go to dex.exchange_rates.
+ * Uses CMC_API_KEY env var. Insertions go to dex.current_prices.
  * Can be swapped out for Stork or any oracle later.
  */
 import type { Pool } from 'pg';
