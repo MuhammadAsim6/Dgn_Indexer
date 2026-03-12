@@ -74,26 +74,7 @@ CREATE TABLE IF NOT EXISTS dex.token_twitter (
     updated_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ============================================================
--- 5. dex.ibc_holders_tmp — Temp Table for IBC Holder Snapshots
--- ============================================================
-CREATE TABLE IF NOT EXISTS dex.ibc_holders_tmp (
-    token_id     BIGINT      NOT NULL REFERENCES tokens.registry(token_id),
-    address      TEXT        NOT NULL,
-    balance_base NUMERIC(78,0),
-    PRIMARY KEY (token_id, address)
-);
-
--- ============================================================
--- 6. dex.ibc_holder_candidates — Tracked IBC Holder Addresses
--- ============================================================
-CREATE TABLE IF NOT EXISTS dex.ibc_holder_candidates (
-    token_id     BIGINT      NOT NULL REFERENCES tokens.registry(token_id),
-    address      TEXT        NOT NULL,
-    last_seen_h  BIGINT,
-    last_seen_at TIMESTAMPTZ,
-    PRIMARY KEY (token_id, address)
-);
+-- (IBC holder tracking moved to ClickHouse)
 
 -- ============================================================
 -- 7. dex.user_profiles — User Accounts

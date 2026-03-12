@@ -110,6 +110,8 @@ export async function insertDexTrades(
             height,
             tx_hash: s.tx_hash,
             signer: s.sender_address ?? null,
+            memo: s.memo ?? null,
+            is_degenter: (s.memo || '').toLowerCase().includes('degenter.io'),
             created_at: createdAt,
             price_in_quote: priceInQuote,
             price_in_zig: null,
@@ -162,6 +164,8 @@ export async function insertDexTrades(
             height,
             tx_hash: s.tx_hash,
             signer: s.sender ?? s.signer ?? null,
+            memo: s.memo ?? null,
+            is_degenter: (s.memo || '').toLowerCase().includes('degenter.io'),
             created_at: createdAt,
             price_in_quote: priceInQuote,
             price_in_zig: null,
@@ -192,6 +196,8 @@ export async function insertDexTrades(
             height,
             tx_hash: l.tx_hash,
             signer: l.sender_address ?? null,
+            memo: l.memo ?? null,
+            is_degenter: (l.memo || '').toLowerCase().includes('degenter.io'),
             created_at: createdAt,
             price_in_quote: null,
             price_in_zig: null,
@@ -206,7 +212,7 @@ export async function insertDexTrades(
     const cols = [
         'pool_id', 'action', 'direction', 'source_kind', 'msg_index', 'event_index',
         'offer_asset_denom', 'ask_asset_denom', 'offer_amount_base', 'return_amount_base',
-        'height', 'tx_hash', 'signer', 'created_at',
+        'height', 'tx_hash', 'signer', 'memo', 'is_degenter', 'created_at',
         'price_in_quote', 'price_in_zig', 'price_in_usd', 'value_in_zig', 'value_in_usd',
     ];
 

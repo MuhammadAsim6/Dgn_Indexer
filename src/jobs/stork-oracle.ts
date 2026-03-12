@@ -64,12 +64,15 @@ export async function runStorkOracle(pool: Pool): Promise<void> {
             return;
         }
 
-        // Insert into dex.exchange_rates
+        // Insert into dex.current_prices
         const client = await pool.connect();
         try {
             await client.query(
-                `INSERT INTO dex.exchange_rates (ts, zig_usd) VALUES (NOW(), $1)
-         ON CONFLICT (ts) DO UPDATE SET zig_usd = EXCLUDED.zig_usd`,
+                `INSERT INTO dex.current_prices (symbol, price, updated_at)
+                 VALUES ('ZIG_USD', $1, NOW())
+                 ON CONFLICT (symbol) DO UPDATE SET 
+                    price = EXCLUDED.price,
+                    updated_at = NOW()`,
                 [priceUsd],
             );
             log.info(`[stork-oracle] ZIG/USD = ${priceUsd}`);

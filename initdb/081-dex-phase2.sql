@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS dex.trades (
     height               BIGINT      NOT NULL,
     tx_hash              TEXT        NOT NULL,
     signer               TEXT,
+    memo                 TEXT,
+    is_degenter          BOOLEAN NOT NULL DEFAULT FALSE,
     created_at           TIMESTAMPTZ NOT NULL,
     price_in_quote       NUMERIC(78,18),
     price_in_zig         NUMERIC(78,18),

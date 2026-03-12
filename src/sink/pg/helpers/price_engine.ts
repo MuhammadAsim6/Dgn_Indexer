@@ -13,16 +13,16 @@ const log = getLogger('sink/pg/helpers/price_engine');
  * Also backfill price_in_zig on the trades that were just inserted.
  */
 export async function deriveAndUpsertPrices(
-    client: PoolClient,
-    tradeCount: number,
+  client: PoolClient,
+  tradeCount: number,
 ): Promise<void> {
-    if (tradeCount === 0) return;
+  if (tradeCount === 0) return;
 
-    // 1. Upsert dex.prices from latest swap trades per pool
-    //    For each pool, take the most recent trade's price_in_quote.
-    //    If the quote is uzig → price_in_zig = price_in_quote directly.
-    //    (Point 2: Also calculate price_in_usd)
-    const result = await client.query(`
+  // 1. Upsert dex.prices from latest swap trades per pool
+  //    For each pool, take the most recent trade's price_in_quote.
+  //    If the quote is uzig → price_in_zig = price_in_quote directly.
+  //    (Point 2: Also calculate price_in_usd)
+  const result = await client.query(`
     WITH latest_swaps AS (
       SELECT DISTINCT ON (t.pool_id)
         t.pool_id,
@@ -35,7 +35,7 @@ export async function deriveAndUpsertPrices(
       ORDER BY t.pool_id, t.created_at DESC, t.trade_id DESC
     ),
     latest_zig_usd AS (
-      SELECT zig_usd FROM dex.exchange_rates ORDER BY ts DESC LIMIT 1
+      SELECT price AS zig_usd FROM dex.current_prices WHERE symbol = 'ZIG_USD'
     )
     INSERT INTO dex.prices (token_id, pool_id, price_in_zig, price_in_usd, is_pair_native, updated_at)
     SELECT
@@ -55,9 +55,9 @@ export async function deriveAndUpsertPrices(
       updated_at     = NOW()
   `);
 
-    // 2. Backfill price_in_zig on recent trades where it's NULL
-    //    For pools with uzig quote, price_in_zig = price_in_quote
-    await client.query(`
+  // 2. Backfill price_in_zig on recent trades where it's NULL
+  //    For pools with uzig quote, price_in_zig = price_in_quote
+  await client.query(`
     UPDATE dex.trades t
     SET price_in_zig = t.price_in_quote
     FROM dex.pools p
@@ -69,9 +69,9 @@ export async function deriveAndUpsertPrices(
       AND t.created_at > NOW() - INTERVAL '1 hour'
   `);
 
-    // 3. For non-uzig pools, try to derive price_in_zig via intermediate ZIG pool
-    //    (quote_token → find its price_in_zig from another pool → multiply)
-    await client.query(`
+  // 3. For non-uzig pools, try to derive price_in_zig via intermediate ZIG pool
+  //    (quote_token → find its price_in_zig from another pool → multiply)
+  await client.query(`
     UPDATE dex.trades t
     SET price_in_zig = t.price_in_quote * ref.price_in_zig
     FROM dex.pools p
@@ -84,11 +84,18 @@ export async function deriveAndUpsertPrices(
       AND t.created_at > NOW() - INTERVAL '1 hour'
   `);
 
-    // 4. (Point 3) Backfill value_in_zig and value_in_usd on trades
-    //    value_in_zig = amount_base * price_in_zig
+  // Fetch the latest ZIG/USD rate for subsequent calculations
+  const zigUsdResult = await client.query(`
+    SELECT price AS zig_usd FROM dex.current_prices WHERE symbol = 'ZIG_USD'
+  `);
+  const zigUsd = Number(zigUsdResult.rows[0]?.zig_usd || 0);
+
+  // 4. (Point 3) Backfill value_in_zig and value_in_usd on trades
+  //    value_in_zig = amount_base * price_in_zig
     await client.query(`
     UPDATE dex.trades t
     SET 
+      price_in_usd = t.price_in_zig * $1,
       value_in_zig = (CASE 
         WHEN t.direction = 'buy' THEN t.return_amount_base 
         ELSE t.offer_amount_base 
@@ -96,11 +103,11 @@ export async function deriveAndUpsertPrices(
       value_in_usd = (CASE 
         WHEN t.direction = 'buy' THEN t.return_amount_base 
         ELSE t.offer_amount_base 
-      END) * t.price_in_zig * (SELECT zig_usd FROM dex.exchange_rates ORDER BY ts DESC LIMIT 1)
+      END) * t.price_in_zig * $1
     WHERE t.price_in_zig IS NOT NULL 
-      AND t.value_in_zig IS NULL
+      AND t.value_in_usd IS NULL
       AND t.created_at > NOW() - INTERVAL '1 hour'
-  `);
+  `, [zigUsd]);
 
-    log.debug(`[price-engine] prices derived, ${result.rowCount ?? 0} pools updated`);
+  log.debug(`[price-engine] prices derived, ${result.rowCount ?? 0} pools updated`);
 }

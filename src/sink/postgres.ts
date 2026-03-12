@@ -1492,7 +1492,8 @@ export class PostgresSink implements Sink {
               amount_0: m.base?.amount || evBaseAmount || null,
               amount_1: m.quote?.amount || evQuoteAmount || null,
               shares_minted_burned: m.lptoken?.amount || evLpAmount || null,
-              block_height: height
+              block_height: height,
+              memo,
             });
             registerToken(m.base?.denom, undefined, {}, tx_hash);
             registerToken(m.quote?.denom, undefined, {}, tx_hash);
@@ -1854,7 +1855,8 @@ export class PostgresSink implements Sink {
                 price_impact: priceImpact,
                 total_fee: totalFee,
                 block_height: height,
-                timestamp: time
+                timestamp: time,
+                memo,
               };
 
               if (isNativeSwap) {
@@ -1874,7 +1876,8 @@ export class PostgresSink implements Sink {
                   total_fee: swapRow.total_fee,
                   price_impact: swapRow.price_impact ? swapRow.price_impact.toString() : null,
                   block_height: swapRow.block_height,
-                  timestamp: swapRow.timestamp
+                  timestamp: swapRow.timestamp,
+                  memo: swapRow.memo
                 });
               } else {
                 // Route Smart Contract Swaps to wasm schema
@@ -2450,31 +2453,33 @@ export class PostgresSink implements Sink {
     const tokenMap = await resolveTokenIds(client, [...denoms]);
 
     // Build dex.pools rows
+    const rows: any[] = [];
     for (const p of poolRows) {
-      const baseTokenId = tokenMap.get(p.base_denom) ?? null;
-      const quoteTokenId = tokenMap.get(p.quote_denom) ?? null;
+      rows.push({
+        pair_contract: String(p.pool_id), // pair_contract = stringified zigchain pool_id
+        base_token_id: tokenMap.get(p.base_denom) ?? null,
+        quote_token_id: tokenMap.get(p.quote_denom) ?? null,
+        lp_token_denom: p.lp_token_denom ?? null,
+        pair_id: p.pair_id ?? null,
+        pair_type: null, // pair_type (not in zigchain schema)
+        signer: p.creator_address ?? null,
+        created_height: p.block_height ?? null,
+        created_tx_hash: p.tx_hash ?? null,
+      });
+    }
 
-      await client.query(`
-        INSERT INTO dex.pools (pair_contract, base_token_id, quote_token_id, lp_token_denom, pair_id, pair_type, signer, created_height, created_tx_hash)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        ON CONFLICT (pair_contract) DO UPDATE SET
+    await execBatchedInsert(
+      client,
+      'dex.pools',
+      ['pair_contract', 'base_token_id', 'quote_token_id', 'lp_token_denom', 'pair_id', 'pair_type', 'signer', 'created_height', 'created_tx_hash'],
+      rows,
+      `ON CONFLICT (pair_contract) DO UPDATE SET
           base_token_id  = COALESCE(EXCLUDED.base_token_id, dex.pools.base_token_id),
           quote_token_id = COALESCE(EXCLUDED.quote_token_id, dex.pools.quote_token_id),
           lp_token_denom = COALESCE(EXCLUDED.lp_token_denom, dex.pools.lp_token_denom),
           pair_id        = COALESCE(EXCLUDED.pair_id, dex.pools.pair_id),
-          updated_at     = NOW()
-      `, [
-        String(p.pool_id),         // pair_contract = stringified zigchain pool_id
-        baseTokenId,
-        quoteTokenId,
-        p.lp_token_denom ?? null,
-        p.pair_id ?? null,
-        null,                      // pair_type (not in zigchain schema)
-        p.creator_address ?? null,
-        p.block_height ?? null,
-        p.tx_hash ?? null,
-      ]);
-    }
+          updated_at     = NOW()`
+    );
 
     log.debug(`[dex-pools] upserted ${poolRows.length} pools into dex.pools`);
   }
@@ -2512,7 +2517,7 @@ export class PostgresSink implements Sink {
     const tokenMap = await resolveTokenIds(client, [...denoms]);
 
     // Upsert into dex.pools
-    let inserted = 0;
+    const rows: any[] = [];
     for (const [contract, meta] of seen) {
       const baseTokenId = meta.base ? (tokenMap.get(meta.base) ?? null) : null;
       const quoteTokenId = meta.quote ? (tokenMap.get(meta.quote) ?? null) : null;
@@ -2522,29 +2527,30 @@ export class PostgresSink implements Sink {
         ? [meta.base, meta.quote].sort().join('-')
         : null;
 
-      await client.query(`
-        INSERT INTO dex.pools (pair_contract, base_token_id, quote_token_id, pair_id, pair_type, signer, created_height)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (pair_contract) DO UPDATE SET
+      rows.push({
+        pair_contract: contract, // pair_contract = WASM contract address
+        base_token_id: baseTokenId,
+        quote_token_id: quoteTokenId,
+        pair_id: pairId,
+        pair_type: 'wasm', // pair_type to distinguish from native pools
+        signer: meta.sender,
+        created_height: meta.height,
+      });
+    }
+
+    await execBatchedInsert(
+      client,
+      'dex.pools',
+      ['pair_contract', 'base_token_id', 'quote_token_id', 'pair_id', 'pair_type', 'signer', 'created_height'],
+      rows,
+      `ON CONFLICT (pair_contract) DO UPDATE SET
           base_token_id  = COALESCE(dex.pools.base_token_id, EXCLUDED.base_token_id),
           quote_token_id = COALESCE(dex.pools.quote_token_id, EXCLUDED.quote_token_id),
           pair_id        = COALESCE(dex.pools.pair_id, EXCLUDED.pair_id),
-          updated_at     = NOW()
-      `, [
-        contract,          // pair_contract = WASM contract address
-        baseTokenId,
-        quoteTokenId,
-        pairId,
-        'wasm',            // pair_type to distinguish from native pools
-        meta.sender,
-        meta.height,
-      ]);
-      inserted++;
-    }
+          updated_at     = NOW()`
+    );
 
-    if (inserted > 0) {
-      log.debug(`[dex-pools] auto-registered ${inserted} WASM pools into dex.pools`);
-    }
+    log.debug(`[dex-pools] auto-registered ${rows.length} WASM pools into dex.pools`);
   }
 
   /**
@@ -2577,6 +2583,7 @@ export class PostgresSink implements Sink {
     const hashes = ibcDenomRows.map((r: any) => r.hash);
     const tokenMap = await resolveTokenIds(client, hashes);
 
+    const rows: any[] = [];
     for (const r of ibcDenomRows) {
       const tokenId = tokenMap.get(r.hash);
       if (!tokenId) continue;
@@ -2587,21 +2594,27 @@ export class PostgresSink implements Sink {
         channel = pathParts[1];
       }
 
-      await client.query(`
-        INSERT INTO dex.ibc_tokens (token_id, ibc_denom, base_denom, channel, port, source_chain)
-        SELECT $1, $2, $3, $4, $5, cl.chain_id
-        FROM (SELECT 1) AS dummy
-        LEFT JOIN ibc.channels ch ON ch.channel_id = $4 AND ch.port_id = $5
-        LEFT JOIN ibc.connections co ON co.connection_id = ch.connection_hops[1]
-        LEFT JOIN ibc.clients cl ON cl.client_id = co.client_id
-        ON CONFLICT (ibc_denom) DO UPDATE SET
-          base_denom = COALESCE(EXCLUDED.base_denom, dex.ibc_tokens.base_denom),
-          channel = COALESCE(EXCLUDED.channel, dex.ibc_tokens.channel),
-          port = COALESCE(EXCLUDED.port, dex.ibc_tokens.port),
-          source_chain = COALESCE(EXCLUDED.source_chain, dex.ibc_tokens.source_chain),
-          updated_at = NOW()
-      `, [tokenId, r.hash, r.base_denom, channel, port]);
+      rows.push({
+        token_id: tokenId,
+        ibc_denom: r.hash,
+        base_denom: r.base_denom ?? null,
+        channel: channel,
+        port: port,
+      });
     }
+
+    await execBatchedInsert(
+      client,
+      'dex.ibc_tokens',
+      ['token_id', 'ibc_denom', 'base_denom', 'channel', 'port'],
+      rows,
+      `ON CONFLICT (ibc_denom) DO UPDATE SET
+          token_id   = EXCLUDED.token_id,
+          base_denom = COALESCE(EXCLUDED.base_denom, dex.ibc_tokens.base_denom),
+          channel    = COALESCE(EXCLUDED.channel, dex.ibc_tokens.channel),
+          port       = COALESCE(EXCLUDED.port, dex.ibc_tokens.port),
+          updated_at = NOW()`
+    );
   }
 
   private async flushAll(): Promise<void> {

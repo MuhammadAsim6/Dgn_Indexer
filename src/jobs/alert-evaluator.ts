@@ -85,10 +85,11 @@ export async function runAlertEvaluator(pool: Pool): Promise<void> {
                         const minVal = Number(alert.params?.min_value_zig) || 10000;
 
                         let query = `
-                            SELECT tx_hash, value_zig, direction, pool_id, signer
-                            FROM dex.large_trades
-                            WHERE value_zig >= $1
+                            SELECT tx_hash, value_in_zig, direction, pool_id, signer
+                            FROM dex.trades
+                            WHERE value_in_zig >= $1
                               AND created_at > (NOW() - INTERVAL '1 minute')
+                              AND action = 'swap'
                         `;
                         const queryParams: any[] = [minVal];
 
@@ -105,7 +106,7 @@ export async function runAlertEvaluator(pool: Pool): Promise<void> {
                             shouldTrigger = true;
                             payload = {
                                 tx_hash: rows[0].tx_hash,
-                                value_zig: rows[0].value_zig,
+                                value_zig: rows[0].value_in_zig,
                                 direction: rows[0].direction,
                                 pool_id: rows[0].pool_id,
                                 signer: rows[0].signer

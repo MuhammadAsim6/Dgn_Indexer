@@ -58,13 +58,14 @@ export async function runExternalPrices(pool: Pool): Promise<void> {
             const tokenId = tokenByCmc.get(Number(cmcId));
 
             if (tokenId != null && priceUsd != null && Number.isFinite(priceUsd)) {
+                const symbol = `TOKEN_${tokenId}_USD`;
                 await client.query(`
-          INSERT INTO dex.external_prices (token_id, source, price_usd, updated_at)
-          VALUES ($1, 'cmc', $2, NOW())
-          ON CONFLICT (token_id, source) DO UPDATE SET
-            price_usd = EXCLUDED.price_usd,
+          INSERT INTO dex.current_prices (symbol, price, updated_at)
+          VALUES ($1, $2, NOW())
+          ON CONFLICT (symbol) DO UPDATE SET
+            price = EXCLUDED.price,
             updated_at = NOW()
-        `, [tokenId, priceUsd]);
+        `, [symbol, priceUsd]);
                 updated++;
             }
         }

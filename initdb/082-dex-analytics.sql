@@ -21,27 +21,19 @@ CREATE INDEX IF NOT EXISTS idx_dex_prices_pool  ON dex.prices(pool_id);
 
 
 -- ============================================================
--- 3. dex.exchange_rates — ZIG/USD rate from oracle (Hypertable)
+-- 3. dex.current_prices — Latest Oracle & External Rates
 -- ============================================================
-CREATE TABLE IF NOT EXISTS dex.exchange_rates (
-    ts      TIMESTAMPTZ NOT NULL PRIMARY KEY,
-    zig_usd NUMERIC(38,8) NOT NULL
+CREATE TABLE IF NOT EXISTS dex.current_prices (
+    symbol     TEXT PRIMARY KEY, -- 'ZIG_USD', 'CMC_ZIG_USD', etc.
+    price      NUMERIC(38,18) NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-SELECT create_hypertable('dex.exchange_rates', by_range('ts'), if_not_exists => TRUE);
+-- Seed ZIG_USD with a default value to prevent NULL calculations on fresh start
+INSERT INTO dex.current_prices (symbol, price) 
+VALUES ('ZIG_USD', 0.1) 
+ON CONFLICT (symbol) DO NOTHING;
 
-CREATE INDEX IF NOT EXISTS idx_dex_exchange_rates_ts ON dex.exchange_rates(ts DESC);
-
--- ============================================================
--- 4. dex.external_prices — CMC/CoinGecko per-token prices
--- ============================================================
-CREATE TABLE IF NOT EXISTS dex.external_prices (
-    token_id   BIGINT NOT NULL REFERENCES tokens.registry(token_id),
-    source     TEXT   NOT NULL,  -- 'cmc', 'coingecko'
-    price_usd  NUMERIC(38,18),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (token_id, source)
-);
 
 -- ============================================================
 -- 5. dex.ohlcv_1m — 1-minute OHLCV candles (Continuous Aggregate)
@@ -51,12 +43,19 @@ WITH (timescaledb.continuous) AS
 SELECT
     pool_id,
     time_bucket('1 minute', created_at) AS bucket_start,
+    -- ZIG prices
     first(price_in_zig, created_at)   AS open,
     max(price_in_zig)                 AS high,
     min(price_in_zig)                 AS low,
     last(price_in_zig, created_at)    AS close,
     sum(offer_amount_base)              AS volume_base,
     sum(return_amount_base)             AS volume_quote,
+    -- USD prices (Denormalized from trades)
+    first(price_in_usd, created_at)   AS open_usd,
+    max(price_in_usd)                 AS high_usd,
+    min(price_in_usd)                 AS low_usd,
+    last(price_in_usd, created_at)    AS close_usd,
+    sum(value_in_usd)                 AS volume_usd,
     count(*)                            AS trade_count
 FROM dex.trades
 WHERE action = 'swap' AND price_in_zig IS NOT NULL
@@ -70,20 +69,9 @@ SELECT add_continuous_aggregate_policy('dex.ohlcv_1m',
     if_not_exists => TRUE);
 
 -- ============================================================
--- 6. dex.ohlcv_1m_usd — USD-denominated OHLCV view
+-- 6. dex.ohlcv_1m_usd — Unified View (Backward Compatibility)
 -- ============================================================
 CREATE OR REPLACE VIEW dex.ohlcv_1m_usd AS
-SELECT
-    o.*,
-    o.open  * er.zig_usd AS open_usd,
-    o.high  * er.zig_usd AS high_usd,
-    o.low   * er.zig_usd AS low_usd,
-    o.close * er.zig_usd AS close_usd,
-    o.volume_base * er.zig_usd AS volume_usd
-FROM dex.ohlcv_1m o
-LEFT JOIN LATERAL (
-    SELECT zig_usd FROM dex.exchange_rates
-    WHERE ts <= o.bucket_start ORDER BY ts DESC LIMIT 1
-) er ON TRUE;
+SELECT * FROM dex.ohlcv_1m;
 
 
