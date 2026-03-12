@@ -19,21 +19,6 @@ CREATE TABLE IF NOT EXISTS dex.prices (
 CREATE INDEX IF NOT EXISTS idx_dex_prices_token ON dex.prices(token_id);
 CREATE INDEX IF NOT EXISTS idx_dex_prices_pool  ON dex.prices(pool_id);
 
--- ============================================================
--- 2. dex.price_ticks — Historical price snapshots (Hypertable)
--- ============================================================
-CREATE TABLE IF NOT EXISTS dex.price_ticks (
-    pool_id      BIGINT NOT NULL,
-    token_id     BIGINT NOT NULL,
-    price_in_zig NUMERIC(38,18),
-    price_in_usd NUMERIC(38,18),
-    ts           TIMESTAMPTZ NOT NULL
-);
-
-SELECT create_hypertable('dex.price_ticks', by_range('ts'), if_not_exists => TRUE);
-
-CREATE INDEX IF NOT EXISTS idx_dex_price_ticks_ts ON dex.price_ticks(ts DESC);
-CREATE INDEX IF NOT EXISTS idx_dex_price_ticks_token ON dex.price_ticks(token_id, ts DESC);
 
 -- ============================================================
 -- 3. dex.exchange_rates — ZIG/USD rate from oracle (Hypertable)
@@ -101,32 +86,4 @@ LEFT JOIN LATERAL (
     WHERE ts <= o.bucket_start ORDER BY ts DESC LIMIT 1
 ) er ON TRUE;
 
--- ============================================================
--- 7. dex.pool_matrix — Aggregated pool metrics per window
--- ============================================================
-CREATE TABLE IF NOT EXISTS dex.pool_matrix (
-    pool_id      BIGINT NOT NULL REFERENCES dex.pools(pool_id),
-    bucket       dex.wallet_window NOT NULL,
-    vol_buy_zig  NUMERIC(38,8) DEFAULT 0,
-    vol_sell_zig NUMERIC(38,8) DEFAULT 0,
-    tx_buy       BIGINT DEFAULT 0,
-    tx_sell      BIGINT DEFAULT 0,
-    tvl_zig      NUMERIC(38,8) DEFAULT 0,
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (pool_id, bucket)
-);
 
--- ============================================================
--- 8. dex.token_matrix — Aggregated token metrics per window
--- ============================================================
-CREATE TABLE IF NOT EXISTS dex.token_matrix (
-    token_id     BIGINT NOT NULL REFERENCES tokens.registry(token_id),
-    bucket       dex.wallet_window NOT NULL,
-    tvl_zig              NUMERIC(78,18),
-    mcap_zig             NUMERIC(78,18),
-    fdv_zig              NUMERIC(78,18),
-    vol_buy_zig          NUMERIC(78,18),
-    vol_sell_zig         NUMERIC(78,18),
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (token_id, bucket)
-);

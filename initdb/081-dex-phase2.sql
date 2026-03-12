@@ -54,16 +54,6 @@ CREATE TABLE IF NOT EXISTS dex.pool_state (
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ============================================================
--- 3. dex.token_holders_stats — Aggregated Holder Counts
--- Updated by matrix-roller job from bank.balances_current.
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS dex.token_holders_stats (
-    token_id       BIGINT      PRIMARY KEY REFERENCES tokens.registry(token_id),
-    holders_count  BIGINT      NOT NULL DEFAULT 0,
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 
 -- ============================================================
 -- 4. TRIGGER: dex.trades → dex.pool_state

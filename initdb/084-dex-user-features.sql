@@ -126,37 +126,7 @@ CREATE TABLE IF NOT EXISTS dex.user_wallets (
 
 CREATE INDEX IF NOT EXISTS idx_user_wallets_wallet ON dex.user_wallets (wallet_id);
 
--- ============================================================
--- 9. dex.token_security — Token Risk Analysis
--- ============================================================
-CREATE TABLE IF NOT EXISTS dex.token_security (
-    token_id               BIGINT      PRIMARY KEY REFERENCES tokens.registry(token_id),
-    denom                  TEXT,
-    is_mintable            BOOLEAN,
-    can_change_minting_cap BOOLEAN,
-    max_supply_base        NUMERIC(78,0),
-    total_supply_base      NUMERIC(78,0),
-    creator_address        TEXT,
-    creator_balance_base   NUMERIC(78,0),
-    creator_pct_of_max     NUMERIC(10,4),
-    top10_pct_of_max       NUMERIC(10,4),
-    holders_count          BIGINT,
-    first_seen_at          TIMESTAMPTZ,
-    risk_flags             JSONB,       -- ["creator_owns_>50%", "low_holders", "unlimited_mint"]
-    checked_at             TIMESTAMPTZ  DEFAULT NOW()
-);
 
--- ============================================================
--- 10. dex.ibc_token_stats — IBC Token Market Data from CMC
--- ============================================================
-CREATE TABLE IF NOT EXISTS dex.ibc_token_stats (
-    token_id           BIGINT      PRIMARY KEY REFERENCES tokens.registry(token_id),
-    price_usd          NUMERIC(78,18),
-    market_cap_usd     NUMERIC(78,18),
-    circulating_supply NUMERIC(78,0),
-    total_supply       NUMERIC(78,0),
-    last_updated       TIMESTAMPTZ DEFAULT NOW()
-);
 
 -- ============================================================
 -- 11. Helper View: dex.v_wallet_holdings
