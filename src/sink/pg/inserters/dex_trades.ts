@@ -223,7 +223,8 @@ export async function insertDexTrades(
         'dex.trades',
         cols,
         trades,
-        'ON CONFLICT (tx_hash, source_kind, msg_index, event_index) DO NOTHING',
+        'ON CONFLICT (tx_hash, source_kind, msg_index, event_index, created_at) DO NOTHING',
+
     );
 
     log.debug(`[dex-trades] inserted ${trades.length} trades (native=${zigSwaps.length} wasm=${wasmSwaps.length} lp=${zigLiquidity.length})`);

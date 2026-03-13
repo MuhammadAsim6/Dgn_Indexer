@@ -149,7 +149,7 @@ async function main() {
     sink = createSink({
       kind: cfg.sinkKind,
       outPath: cfg.outPath,
-      flushEvery: cfg.flushEvery ?? 1,
+      flushEvery: cfg.flushEvery ?? 50,
       pg: cfg.pg,
       batchSizes: {
         blocks: cfg.pg?.batchBlocks,

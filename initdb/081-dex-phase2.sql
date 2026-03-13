@@ -35,8 +35,10 @@ CREATE TABLE IF NOT EXISTS dex.trades (
     value_in_zig         NUMERIC(78,18),
     value_in_usd         NUMERIC(78,18),
     PRIMARY KEY (trade_id, created_at),
-    -- Unique constraint for application deduplication (no created_at — timestamps are fragile)
-    CONSTRAINT dex_trades_upsert_key UNIQUE (tx_hash, source_kind, msg_index, event_index)
+    -- Unique constraint for deduplication.
+    -- TimescaleDB requires created_at (partitioning column) in ALL unique indexes.
+    -- This is safe: created_at is derived from block time, so identical trades always get the same timestamp.
+    CONSTRAINT dex_trades_upsert_key UNIQUE (tx_hash, source_kind, msg_index, event_index, created_at)
 );
 
 SELECT create_hypertable('dex.trades', by_range('created_at'), if_not_exists => TRUE);
