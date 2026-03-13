@@ -1,0 +1,11 @@
+syntax = "proto3";
+package zigchain.factory;
+
+option go_package = "zigchain/x/factory/types";
+
+// DenomAuth is a struct that contains the bank and metadata admin of a denom
+message DenomAuth {
+  string denom = 1;
+  string bank_admin = 2;
+  string metadata_admin = 3;
+}

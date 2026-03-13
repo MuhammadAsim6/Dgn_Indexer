@@ -1,0 +1,17 @@
+.evm
+.idea
+.data
+.env
+src/generated/
+node_modules/
+dist
+
+# Audit Documentation (Local Reference Only)
+AUDIT_SUMMARY.md
+DOCUMENTATION_GUIDE.md
+EVIDENCE_MODULE_IMPLEMENTATION.md
+INDEXER_AUDIT.md
+QUICK_REFERENCE.md
+README_AUDIT.md
+SLASHING_MODULE_IMPLEMENTATION.md
+VESTING_MODULE_IMPLEMENTATION.md

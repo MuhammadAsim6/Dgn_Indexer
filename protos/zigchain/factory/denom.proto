@@ -1,0 +1,81 @@
+syntax = "proto3";
+package zigchain.factory;
+import "gogoproto/gogo.proto";
+import "cosmos_proto/cosmos.proto";
+import "amino/amino.proto";
+option go_package = "zigchain/x/factory/types";
+
+// Denom is the protobuf definition for the factory module.
+// type name = order in binary message
+// this will generate all kind of go files based on protobuf
+message Denom {
+  string creator = 1;
+  string denom = 2;
+  string minting_cap = 3 [
+    (cosmos_proto.scalar) = "cosmos.UInt",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  string minted = 4 [
+    (cosmos_proto.scalar) = "cosmos.UInt",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  bool can_change_minting_cap = 5;
+}
+
+message LegacyDenom {
+  string creator = 1;
+  string denom = 2;
+  string maxSupply = 3 [
+    (cosmos_proto.scalar) = "cosmos.UInt",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  string minted = 4 [
+    (cosmos_proto.scalar) = "cosmos.UInt",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  bool canChangeMaxSupply = 5;
+}
+
+message DenomResponse {
+  string creator = 1;
+  string denom = 2;
+  string minting_cap = 3 [
+    (cosmos_proto.scalar) = "cosmos.Uint",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  string max_supply = 4 [
+    (cosmos_proto.scalar) = "cosmos.UInt",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  string total_minted = 5 [
+    (cosmos_proto.scalar) = "cosmos.UInt",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  bool can_change_minting_cap = 6;
+  string total_burned = 7 [
+    (cosmos_proto.scalar) = "cosmos.UInt",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  string total_supply = 8 [
+    (cosmos_proto.scalar) = "cosmos.UInt",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}

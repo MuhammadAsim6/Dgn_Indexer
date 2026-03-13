@@ -1,0 +1,313 @@
+// this file defines the Msg service (transactions)  for the factory module
+syntax = "proto3";
+
+package zigchain.factory;
+
+import "amino/amino.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "zigchain/factory/params.proto";
+import "cosmos/base/v1beta1/coin.proto";
+
+// REPLACE_TS_CLIENT_FIX_FROM_IMPORT
+import "cosmos/bank/v1beta1/bank.proto";
+// REPLACE_TS_CLIENT_FIX_TO_IMPORT
+
+option go_package = "zigchain/x/factory/types";
+
+// Msg defines the Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // UpdateParams defines a (governance) operation for updating the module
+  // parameters. The authority defaults to the x/gov module account.
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+
+  // Create token
+  rpc CreateDenom(MsgCreateDenom) returns (MsgCreateDenomResponse);
+
+  // Set the metadata of a denom
+  rpc SetDenomMetadata(MsgSetDenomMetadata)
+      returns (MsgSetDenomMetadataResponse);
+
+  // UpdateDenomURI updates the URI of a denom and its sha256 hash, only bank
+  // admin can do it.
+  rpc UpdateDenomURI(MsgUpdateDenomURI) returns (MsgUpdateDenomURIResponse);
+
+  // UpdateDenomMintingCap updates the minting cap and options o lock minting
+  // cap changes on a denom, only bank admin can do it.
+  rpc UpdateDenomMintingCap(MsgUpdateDenomMintingCap)
+      returns (MsgUpdateDenomMintingCapResponse);
+
+  rpc UpdateDenomMaxSupply(MsgUpdateDenomMaxSupply)
+      returns (MsgUpdateDenomMaxSupplyResponse);
+
+  // UpdateDenomMetadataAuth updates the metadata admin of a denom, needed for
+  // case when bank admin is disabled
+  rpc UpdateDenomMetadataAuth(MsgUpdateDenomMetadataAuth)
+      returns (MsgUpdateDenomMetadataAuthResponse);
+
+  // Mint and send tokens to a recipient
+  rpc MintAndSendTokens(MsgMintAndSendTokens)
+      returns (MsgMintAndSendTokensResponse);
+
+  // BurnTokens - Burn tokens from the signer's account, signer has to be bank
+  // admin to do it.
+  rpc BurnTokens(MsgBurnTokens) returns (MsgBurnTokensResponse);
+  rpc WithdrawModuleFees(MsgWithdrawModuleFees)
+      returns (MsgWithdrawModuleFeesResponse);
+
+  // ProposeDenomAdmin represents a message to propose a new denom admin
+  rpc ProposeDenomAdmin(MsgProposeDenomAdmin)
+      returns (MsgProposeDenomAdminResponse);
+
+  // ClaimDenomAdmin represents a message to claim the denom admin role
+  rpc ClaimDenomAdmin(MsgClaimDenomAdmin) returns (MsgClaimDenomAdminResponse);
+
+  // DisableDenomAdmin represents a message to disable the denom admin role
+  rpc DisableDenomAdmin(MsgDisableDenomAdmin)
+      returns (MsgDisableDenomAdminResponse);
+}
+// MsgUpdateParams is the Msg/UpdateParams request type.
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "zigchain/x/factory/MsgUpdateParams";
+
+  // authority is the address that controls the module (defaults to x/gov unless
+  // overwritten).
+  string authority = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+
+  // params defines the module parameters to update.
+
+  // NOTE: All parameters must be supplied.
+  Params params = 2
+      [ (gogoproto.nullable) = false, (amino.dont_omitempty) = true ];
+}
+
+// MsgUpdateParamsResponse defines the response structure for executing a
+// MsgUpdateParams message.
+message MsgUpdateParamsResponse {}
+
+// MsgCreateDenom used to create new denom via factory
+message MsgCreateDenom {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1;
+  string sub_denom = 2;
+  string minting_cap = 3 [
+    (cosmos_proto.scalar) = "cosmos.Uint",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  bool can_change_minting_cap = 4;
+
+  // metadata
+  string URI = 5;
+
+  // sha256 hash of the JSON metadata file
+  string URI_hash = 6;
+  string description = 7;
+}
+
+// MsgCreateDenomResponse is conformation on created denom.
+message MsgCreateDenomResponse {
+  string creator = 1;
+  string bank_admin = 2;
+  string metadata_admin = 3;
+  string denom = 4;
+  string minting_cap = 5 [
+    (cosmos_proto.scalar) = "cosmos.Uint",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  bool can_change_minting_cap = 6;
+  string URI = 7;
+  string URI_hash = 8;
+}
+
+// MsgMintAndSendTokens mints tokens and sends them to a recipient
+message MsgMintAndSendTokens {
+  option (cosmos.msg.v1.signer) = "signer";
+  string signer = 1;
+  cosmos.base.v1beta1.Coin token = 2 [ (gogoproto.nullable) = false ];
+  string recipient = 3;
+}
+
+// MsgMintAndSendTokensResponse is conformation on minted and sent tokens.
+message MsgMintAndSendTokensResponse {
+  cosmos.base.v1beta1.Coin token_minted = 1;
+  string recipient = 2;
+  cosmos.base.v1beta1.Coin total_minted = 3;
+  cosmos.base.v1beta1.Coin total_supply = 4;
+}
+
+// MsgUpdateDenomURI updates the URI of a denom and its sha256 hash
+message MsgUpdateDenomURI {
+  option (cosmos.msg.v1.signer) = "signer";
+  string signer = 1;
+  string denom = 2;
+  string URI = 3;
+  string URI_hash = 4;
+}
+
+// MsgUpdateDenomURIResponse is conformation on updated metadata.
+message MsgUpdateDenomURIResponse {
+  string denom = 1;
+  string URI = 2;
+  string URI_hash = 3;
+}
+
+// MsgUpdateDenomMintingCap updates the minting cap and options o lock
+// minting cap changes on a denom
+message MsgUpdateDenomMintingCap {
+  option (cosmos.msg.v1.signer) = "signer";
+  string signer = 1;
+  string denom = 2;
+  string minting_cap = 3 [
+    (cosmos_proto.scalar) = "cosmos.Uint",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  bool can_change_minting_cap = 4;
+}
+
+message MsgUpdateDenomMaxSupply {
+  option (cosmos.msg.v1.signer) = "signer";
+  string signer = 1;
+  string denom = 2;
+  string max_supply = 3 [
+    (cosmos_proto.scalar) = "cosmos.Uint",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  bool can_change_max_supply = 4;
+}
+
+message MsgUpdateDenomMaxSupplyResponse {
+  string denom = 1;
+  string max_supply = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  bool can_change_max_supply = 3;
+}
+
+// MsgUpdateDenomMintingCapResponse is conformation on updated metadata.
+message MsgUpdateDenomMintingCapResponse {
+  string denom = 1;
+  string minting_cap = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Uint",
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  bool can_change_minting_cap = 3;
+}
+
+// MsgUpdateDenomMetadataAuth updates the metadata admin of a denom, needed for
+// case when bank admin is disabled
+message MsgUpdateDenomMetadataAuth {
+  option (cosmos.msg.v1.signer) = "signer";
+  string signer = 1;
+  string denom = 2;
+  string metadata_admin = 3;
+}
+
+// MsgUpdateDenomMetadataAuthResponse is conformation on updated metadata.
+message MsgUpdateDenomMetadataAuthResponse {
+  string denom = 1;
+  string metadata_admin = 2;
+}
+
+// MsgBurnTokens burns tokens from the signer's account, signer has to be bank
+// admin to do it.
+message MsgBurnTokens {
+  option (cosmos.msg.v1.signer) = "signer";
+  string signer = 1;
+  cosmos.base.v1beta1.Coin token = 2 [ (gogoproto.nullable) = false ];
+}
+
+// MsgBurnTokensResponse is conformation on burned tokens.
+message MsgBurnTokensResponse {
+  cosmos.base.v1beta1.Coin amount_burned = 1 [ (gogoproto.nullable) = false ];
+}
+
+// REPLACE_TS_CLIENT_FIX_FROM_BODY
+// MsgSetDenomMetadata sets the metadata of a token
+message MsgSetDenomMetadata {
+  option (cosmos.msg.v1.signer) = "signer";
+  string signer = 1;
+
+  // Uncomment me for ts-client, until better solution is found
+  cosmos.bank.v1beta1.Metadata metadata = 2 [ (gogoproto.nullable) = false ];
+
+  //    Metadata metadata = 2 [(gogoproto.nullable) = false];
+}
+
+// MsgSetDenomMetadataResponse is conformation on updated metadata.
+message MsgSetDenomMetadataResponse {
+
+  // Uncomment me for ts-client, until better solution is found
+  cosmos.bank.v1beta1.Metadata metadata = 1;
+
+  //      Metadata metadata = 1;
+}
+
+// REPLACE_TS_CLIENT_FIX_TO_BODY
+message MsgWithdrawModuleFees {
+  option (cosmos.msg.v1.signer) = "signer";
+  string signer = 1;
+  string receiver = 2;
+}
+
+message MsgWithdrawModuleFeesResponse {
+  string signer = 1;
+  string receiver = 2;
+  repeated cosmos.base.v1beta1.Coin amounts = 3
+      [ (gogoproto.nullable) = false ];
+}
+
+// MsgProposeDenomAdmin represents a message to propose a new denom admin
+message MsgProposeDenomAdmin {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "zigchain/x/factory/MsgProposeDenomAdmin";
+
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  string denom = 2;
+  string bank_admin = 3 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  string metadata_admin = 4 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+}
+
+message MsgProposeDenomAdminResponse {
+  string denom = 1;
+  string bank_admin = 2 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  string metadata_admin = 3 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+}
+
+// MsgClaimDenomAdmin represents a message to claim the denom admin role
+message MsgClaimDenomAdmin {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "zigchain/x/factory/MsgClaimDenomAdmin";
+
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  string denom = 2;
+}
+
+message MsgClaimDenomAdminResponse { string denom = 1; }
+
+// MsgDisableDenomAdmin represents a message to disable the denom admin role
+message MsgDisableDenomAdmin {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "zigchain/x/factory/MsgDisableDenomAdmin";
+
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  string denom = 2;
+}
+
+message MsgDisableDenomAdminResponse { string denom = 1; }

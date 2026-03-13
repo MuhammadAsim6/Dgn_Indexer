@@ -1,0 +1,7 @@
+syntax = "proto3";
+package zigchain.dex;
+
+option go_package = "zigchain/x/dex/types";
+
+// PoolMeta is the metadata of a pool related stuff
+message PoolsMeta { uint64 next_pool_id = 1; }

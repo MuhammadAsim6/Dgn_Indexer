@@ -1,0 +1,172 @@
+syntax = "proto3";
+
+package zigchain.dex;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "zigchain/dex/params.proto";
+
+option go_package = "zigchain/x/dex/types";
+
+// Msg defines the Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // UpdateParams defines a (governance) operation for updating the module
+  // parameters. The authority defaults to the x/gov module account.
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+
+  // CreatePool creates a new pool from base and quote tokens
+  rpc CreatePool(MsgCreatePool) returns (MsgCreatePoolResponse);
+
+  // Swap swaps tokens from one to another
+  rpc SwapExactIn(MsgSwapExactIn) returns (MsgSwapExactInResponse);
+
+  // Swap swaps tokens from one to another
+  rpc SwapExactOut(MsgSwapExactOut) returns (MsgSwapExactOutResponse);
+
+  // AddLiquidity adds liquidity to the pool, from base and quote tokens send in
+  rpc AddLiquidity(MsgAddLiquidity) returns (MsgAddLiquidityResponse);
+
+  // RemoveLiquidity removes liquidity from the pool, from the lptoken send in
+  rpc RemoveLiquidity(MsgRemoveLiquidity) returns (MsgRemoveLiquidityResponse);
+}
+// MsgUpdateParams is the Msg/UpdateParams request type.
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "zigchain/x/dex/MsgUpdateParams";
+
+  // authority is the address that controls the module (defaults to x/gov unless
+  // overwritten).
+  string authority = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+
+  // params defines the module parameters to update.
+
+  // NOTE: All parameters must be supplied.
+  Params params = 2
+      [ (gogoproto.nullable) = false, (amino.dont_omitempty) = true ];
+}
+
+// MsgUpdateParamsResponse defines the response structure for executing a
+// MsgUpdateParams message.
+message MsgUpdateParamsResponse {}
+
+// MsgCreatePool creates pool message needs base and token
+message MsgCreatePool {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1;
+  cosmos.base.v1beta1.Coin base = 2 [ (gogoproto.nullable) = false ];
+  cosmos.base.v1beta1.Coin quote = 3 [ (gogoproto.nullable) = false ];
+  string receiver = 4;
+}
+
+// MsgCreatePoolResponse defines the response structure for executing
+// MsgCreatePool message.
+message MsgCreatePoolResponse {
+  string pool_id = 1;
+  cosmos.base.v1beta1.Coin base = 2 [ (gogoproto.nullable) = false ];
+  cosmos.base.v1beta1.Coin quote = 3 [ (gogoproto.nullable) = false ];
+  cosmos.base.v1beta1.Coin lpToken = 4 [ (gogoproto.nullable) = false ];
+}
+
+// MsgSwap swaps tokens from one to another
+message MsgSwapExactIn {
+  option (cosmos.msg.v1.signer) = "signer";
+  string signer = 1;
+  cosmos.base.v1beta1.Coin incoming = 2 [ (gogoproto.nullable) = false ];
+  string pool_id = 3;
+  // receiver is optional the address that will receive the swapped token, if
+  // not provided it goes to sender
+  string receiver = 4;
+  // outgoing_min is the minimum amount of outgoing token to receive, or swap
+  // will fail
+  cosmos.base.v1beta1.Coin outgoing_min = 5 [ (gogoproto.nullable) = true ];
+}
+
+// MsgSwapResponse defines the response structure GRPC returns upon successfully
+// executing MsgSwap message.
+message MsgSwapExactInResponse {
+  string pool_id = 1;
+  // incoming is the amount of incoming token user paid
+  cosmos.base.v1beta1.Coin incoming = 2 [ (gogoproto.nullable) = false ];
+  // outgoing is the amount of outgoing token user received
+  cosmos.base.v1beta1.Coin outgoing = 3 [ (gogoproto.nullable) = false ];
+  // fee is the amount of fee taken from the incoming token
+  cosmos.base.v1beta1.Coin fee = 4 [ (gogoproto.nullable) = false ];
+  //
+  string receiver = 5;
+  // outgoing_min is the minimum amount of outgoing token to receive, copied
+  // from request
+  cosmos.base.v1beta1.Coin outgoing_min = 6 [ (gogoproto.nullable) = true ];
+}
+
+// MsgSwap swaps tokens from one to another
+message MsgSwapExactOut {
+  option (cosmos.msg.v1.signer) = "signer";
+  string signer = 1;
+  cosmos.base.v1beta1.Coin outgoing = 2 [ (gogoproto.nullable) = false ];
+  string pool_id = 3;
+  // receiver is optional the address that will receive the swapped token, if
+  // not provided it goes to sender
+  string receiver = 4;
+  // incoming_max is the maximum amount of incoming token to pay, or swap will
+  // fail noinspection ProtoFieldName
+  cosmos.base.v1beta1.Coin incoming_max = 5 [ (gogoproto.nullable) = true ];
+}
+
+// MsgSwapResponse defines the response structure GRPC returns upon successfully
+// executing MsgSwap message.
+message MsgSwapExactOutResponse {
+  string pool_id = 1;
+  // incoming is the amount of incoming token user paid
+  cosmos.base.v1beta1.Coin incoming = 2 [ (gogoproto.nullable) = false ];
+  // outgoing is the amount of outgoing token user received
+  cosmos.base.v1beta1.Coin outgoing = 3 [ (gogoproto.nullable) = false ];
+  // fee is the amount of fee taken from the incoming token
+  cosmos.base.v1beta1.Coin fee = 4 [ (gogoproto.nullable) = false ];
+  // receiver is optional the address that will receive the swapped token, if
+  // not provided it goes to sender
+  string receiver = 5;
+  // incoming_max is the maximum amount of incoming token to pay, or swap will
+  // fail noinspection ProtoFieldName
+  cosmos.base.v1beta1.Coin incoming_max = 6 [ (gogoproto.nullable) = true ];
+}
+
+// MsgAddLiquidity adds liquidity to the pool, from the base and quote tokens
+// send in
+message MsgAddLiquidity {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1;
+  string pool_id = 2;
+  cosmos.base.v1beta1.Coin base = 3 [ (gogoproto.nullable) = false ];
+  cosmos.base.v1beta1.Coin quote = 4 [ (gogoproto.nullable) = false ];
+  string receiver = 5;
+}
+
+// MsgAddLiquidityResponse defines the response structure for executing
+// MsgAddLiquidity message.
+message MsgAddLiquidityResponse {
+  cosmos.base.v1beta1.Coin lptoken = 1 [ (gogoproto.nullable) = false ];
+  cosmos.base.v1beta1.Coin actual_base = 2 [ (gogoproto.nullable) = false ];
+  cosmos.base.v1beta1.Coin actual_quote = 3 [ (gogoproto.nullable) = false ];
+  repeated cosmos.base.v1beta1.Coin returned_coins = 4
+      [ (gogoproto.nullable) = false ];
+}
+
+// MsgRemoveLiquidity removes liquidity from the pool, from the lptoken send in
+message MsgRemoveLiquidity {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1;
+  cosmos.base.v1beta1.Coin lptoken = 2 [ (gogoproto.nullable) = false ];
+  string receiver = 3;
+}
+
+// MsgRemoveLiquidityResponse defines the response structure for executing
+// MsgRemoveLiquidity message.
+message MsgRemoveLiquidityResponse {
+  cosmos.base.v1beta1.Coin base = 1 [ (gogoproto.nullable) = false ];
+  cosmos.base.v1beta1.Coin quote = 2 [ (gogoproto.nullable) = false ];
+}

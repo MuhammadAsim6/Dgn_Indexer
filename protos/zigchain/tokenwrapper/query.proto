@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package zigchain.tokenwrapper;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "zigchain/tokenwrapper/params.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
+
+option go_package = "zigchain/x/tokenwrapper/types";
+
+// Query defines the gRPC querier service.
+service Query {
+
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/zigchain/tokenwrapper/params";
+  }
+
+  // Queries a list of ModuleInfo items.
+  rpc ModuleInfo(QueryModuleInfoRequest) returns (QueryModuleInfoResponse) {
+    option (google.api.http).get = "/zigchain/tokenwrapper/module_info";
+  }
+
+  // Queries the total amount of ZIG tokens transferred in and out
+  rpc TotalTransfers(QueryTotalTransfersRequest)
+      returns (QueryTotalTransfersResponse) {
+    option (google.api.http).get = "/zigchain/tokenwrapper/total_transfers";
+  }
+}
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+
+  // params holds all the parameters of this module.
+  Params params = 1
+      [ (gogoproto.nullable) = false, (amino.dont_omitempty) = true ];
+}
+
+message QueryModuleInfoRequest {}
+
+message QueryModuleInfoResponse {
+  string module_address = 1;
+  repeated cosmos.base.v1beta1.Coin balances = 2
+      [ (gogoproto.nullable) = false ];
+  string operator_address = 3
+      [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  string proposed_operator_address = 4
+      [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  repeated string pauser_addresses = 5
+      [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  bool token_wrapper_enabled = 6;
+  string native_client_id = 7;
+  string counterparty_client_id = 8;
+  string native_port = 9;
+  string counterparty_port = 10;
+  string native_channel = 11;
+  string counterparty_channel = 12;
+  string denom = 13;
+  uint32 decimal_difference = 14;
+}
+
+message QueryTotalTransfersRequest {}
+
+message QueryTotalTransfersResponse {
+  string total_transferred_in = 1 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string total_transferred_out = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}

@@ -1,0 +1,218 @@
+syntax = "proto3";
+
+package zigchain.tokenwrapper;
+
+import "amino/amino.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "zigchain/tokenwrapper/params.proto";
+import "cosmos/base/v1beta1/coin.proto";
+
+option go_package = "zigchain/x/tokenwrapper/types";
+
+// Msg defines the Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // UpdateParams defines a (governance) operation for updating the module
+  // parameters. The authority defaults to the x/gov module account.
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+  rpc FundModuleWallet(MsgFundModuleWallet)
+      returns (MsgFundModuleWalletResponse);
+  rpc WithdrawFromModuleWallet(MsgWithdrawFromModuleWallet)
+      returns (MsgWithdrawFromModuleWalletResponse);
+  rpc EnableTokenWrapper(MsgEnableTokenWrapper)
+      returns (MsgEnableTokenWrapperResponse);
+  rpc DisableTokenWrapper(MsgDisableTokenWrapper)
+      returns (MsgDisableTokenWrapperResponse);
+  rpc UpdateIbcSettings(MsgUpdateIbcSettings)
+      returns (MsgUpdateIbcSettingsResponse);
+  rpc AddPauserAddress(MsgAddPauserAddress)
+      returns (MsgAddPauserAddressResponse);
+  rpc RemovePauserAddress(MsgRemovePauserAddress)
+      returns (MsgRemovePauserAddressResponse);
+  rpc ProposeOperatorAddress(MsgProposeOperatorAddress)
+      returns (MsgProposeOperatorAddressResponse);
+  rpc ClaimOperatorAddress(MsgClaimOperatorAddress)
+      returns (MsgClaimOperatorAddressResponse);
+  rpc RecoverZig(MsgRecoverZig) returns (MsgRecoverZigResponse);
+}
+// MsgUpdateParams is the Msg/UpdateParams request type.
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "zigchain/x/tokenwrapper/MsgUpdateParams";
+
+  // authority is the address that controls the module (defaults to x/gov unless
+  // overwritten).
+  string authority = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+
+  // params defines the module parameters to update.
+
+  // NOTE: All parameters must be supplied.
+  Params params = 2
+      [ (gogoproto.nullable) = false, (amino.dont_omitempty) = true ];
+}
+
+// MsgUpdateParamsResponse defines the response structure for executing a
+// MsgUpdateParams message.
+message MsgUpdateParamsResponse {
+  string authority = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  Params params = 2
+      [ (gogoproto.nullable) = false, (amino.dont_omitempty) = true ];
+}
+
+message MsgFundModuleWallet {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "zigchain/x/tokenwrapper/MsgFundModuleWallet";
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  repeated cosmos.base.v1beta1.Coin amount = 2 [ (gogoproto.nullable) = false ];
+}
+
+message MsgFundModuleWalletResponse {
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  repeated cosmos.base.v1beta1.Coin amount = 2 [ (gogoproto.nullable) = false ];
+  repeated cosmos.base.v1beta1.Coin balances = 3
+      [ (gogoproto.nullable) = false ];
+  string module_address = 4 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+}
+
+message MsgWithdrawFromModuleWallet {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "zigchain/x/tokenwrapper/MsgWithdrawFromModuleWallet";
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  repeated cosmos.base.v1beta1.Coin amount = 2 [ (gogoproto.nullable) = false ];
+}
+
+message MsgWithdrawFromModuleWalletResponse {
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  repeated cosmos.base.v1beta1.Coin amount = 2 [ (gogoproto.nullable) = false ];
+  repeated cosmos.base.v1beta1.Coin balances = 3
+      [ (gogoproto.nullable) = false ];
+  string module_address = 4 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  string receiver = 5 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+}
+
+// MsgEnableTokenWrapper represents a message to enable the token wrapper
+// functionality
+message MsgEnableTokenWrapper {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "zigchain/x/tokenwrapper/MsgEnableTokenWrapper";
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+}
+
+message MsgEnableTokenWrapperResponse {
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  bool enabled = 2;
+}
+
+// MsgDisableTokenWrapper represents a message to disable the token wrapper
+// functionality
+message MsgDisableTokenWrapper {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "zigchain/x/tokenwrapper/MsgDisableTokenWrapper";
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+}
+
+message MsgDisableTokenWrapperResponse {
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  bool enabled = 2;
+}
+
+message MsgUpdateIbcSettings {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "zigchain/x/tokenwrapper/MsgUpdateIbcSettings";
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  string native_client_id = 2;
+  string counterparty_client_id = 3;
+  string native_port = 4;
+  string counterparty_port = 5;
+  string native_channel = 6;
+  string counterparty_channel = 7;
+  string denom = 8;
+  uint32 decimal_difference = 9;
+}
+
+message MsgUpdateIbcSettingsResponse {
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  string native_client_id = 2;
+  string counterparty_client_id = 3;
+  string native_port = 4;
+  string counterparty_port = 5;
+  string native_channel = 6;
+  string counterparty_channel = 7;
+  string denom = 8;
+  uint32 decimal_difference = 9;
+}
+
+// MsgAddPauserAddress represents a message to add a new pauser address
+message MsgAddPauserAddress {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "zigchain/x/tokenwrapper/MsgAddPauserAddress";
+  string signer = 1;
+  string new_pauser = 2;
+}
+
+message MsgAddPauserAddressResponse {
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  repeated string pauser_addresses = 6
+      [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+}
+
+// MsgRemovePauserAddress represents a message to remove a pauser address
+message MsgRemovePauserAddress {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "zigchain/x/tokenwrapper/MsgRemovePauserAddress";
+  string signer = 1;
+  string pauser = 2;
+}
+
+message MsgRemovePauserAddressResponse {
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  repeated string pauser_addresses = 6
+      [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+}
+
+// MsgProposeOperatorAddress represents a message to propose a new operator
+// address
+message MsgProposeOperatorAddress {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "zigchain/x/tokenwrapper/MsgProposeOperatorAddress";
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  string new_operator = 2 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+}
+
+message MsgProposeOperatorAddressResponse {
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  string proposed_operator_address = 2
+      [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+}
+
+// MsgClaimOperatorAddress represents a message to claim the operator role
+message MsgClaimOperatorAddress {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "zigchain/x/tokenwrapper/MsgClaimOperatorAddress";
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+}
+
+message MsgClaimOperatorAddressResponse {
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  string operator_address = 2
+      [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+}
+
+message MsgRecoverZig {
+  option (cosmos.msg.v1.signer) = "signer";
+  string signer = 1;
+  string address = 2;
+}
+
+message MsgRecoverZigResponse {
+  string signer = 1 [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  string receiving_address = 2
+      [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+  cosmos.base.v1beta1.Coin locked_ibc_amount = 3
+      [ (gogoproto.nullable) = false ];
+  cosmos.base.v1beta1.Coin unlocked_native_amount = 4
+      [ (gogoproto.nullable) = false ];
+}

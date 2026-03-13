@@ -1,0 +1,24 @@
+# PostgreSQL data directory
+pg-data
+pg-data/
+
+# Node modules (container has its own)
+node_modules
+
+# Git
+.git
+.gitignore
+
+# Environment files
+.env
+
+# IDE
+.vscode
+.idea
+
+# Build artifacts
+dist
+out
+
+# Logs
+*.log

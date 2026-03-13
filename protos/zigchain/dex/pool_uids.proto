@@ -1,0 +1,11 @@
+syntax = "proto3";
+package zigchain.dex;
+
+option go_package = "zigchain/x/dex/types";
+
+// PoolUids is secondary index on pools, allows for reverse lookup from pool
+// date to pool id
+message PoolUids {
+  string pool_uid = 1;
+  string pool_id = 2;
+}

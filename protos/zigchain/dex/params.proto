@@ -1,0 +1,25 @@
+syntax = "proto3";
+package zigchain.dex;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "zigchain/x/dex/types";
+
+// Params defines the parameters for the module.
+message Params {
+  option (amino.name) = "zigchain/x/dex/Params";
+  option (gogoproto.equal) = true;
+  // newPoolFeePct is the percentage of the fee default on new pool
+  uint32 new_pool_fee_pct = 1;
+  // creationFee is the fee to create a new pool
+  uint32 creation_fee = 2;
+  // beneficiary is the address that receives the fee to create a new factory
+  string beneficiary = 3;
+  // minimalLiquidityLock is the minimum amount of LP tokens that are locked in
+  // the module account
+  uint32 minimal_liquidity_lock = 4;
+  // maxSlippage is the maximum allowed slippage percentage for liquidity
+  // deposits (in basis points, 1 = 0.01%)
+  uint32 max_slippage = 5;
+}

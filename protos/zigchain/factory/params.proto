@@ -1,0 +1,19 @@
+syntax = "proto3";
+package zigchain.factory;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "zigchain/x/factory/types";
+
+// Params defines the parameters for the module.
+message Params {
+  option (amino.name) = "zigchain/x/factory/Params";
+  option (gogoproto.equal) = true;
+  // createFeeDenom is the denomination of the fee to create a new factory
+  string create_fee_denom = 1;
+  // createFeeAmount is the amount of the fee to create a new factory
+  uint32 create_fee_amount = 2;
+  // beneficiary is the address that receives the fee to create a new factory
+  string beneficiary = 3;
+}

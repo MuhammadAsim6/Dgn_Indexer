@@ -1,0 +1,13 @@
+syntax = "proto3";
+package zigchain.tokenwrapper;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "zigchain/x/tokenwrapper/types";
+
+// Params defines the parameters for the module.
+message Params {
+  option (amino.name) = "zigchain/x/tokenwrapper/Params";
+  option (gogoproto.equal) = true;
+}

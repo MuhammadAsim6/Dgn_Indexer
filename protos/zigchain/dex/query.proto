@@ -1,0 +1,164 @@
+syntax = "proto3";
+
+package zigchain.dex;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "zigchain/dex/params.proto";
+import "zigchain/dex/pool.proto";
+import "zigchain/dex/pools_meta.proto";
+import "zigchain/dex/pool_uids.proto";
+import "cosmos/base/v1beta1/coin.proto";
+
+option go_package = "zigchain/x/dex/types";
+
+// Query defines the gRPC querier service.
+service Query {
+
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/zigchain/dex/params";
+  }
+
+  // Queries a list of Pool items.
+  rpc GetPool(QueryGetPoolRequest) returns (QueryGetPoolResponse) {
+    option (google.api.http).get = "/zigchain/dex/pool/{pool_id}";
+  }
+
+  // Queries a list of Pool items.
+  rpc GetPoolBalances(QueryGetPoolBalancesRequest)
+      returns (QueryGetPoolBalancesResponse) {
+    option (google.api.http).get = "/zigchain/dex/pool-balances/{pool_id}";
+  }
+  // Queries a list of Pool items.
+  rpc ListPool(QueryAllPoolRequest) returns (QueryAllPoolResponse) {
+    option (google.api.http).get = "/zigchain/dex/pool";
+  }
+
+  // Queries a PoolsMeta by index.
+  rpc GetPoolsMeta(QueryGetPoolsMetaRequest)
+      returns (QueryGetPoolsMetaResponse) {
+    option (google.api.http).get = "/zigchain/dex/pools_meta";
+  }
+
+  // Queries a list of PoolUids items.
+  rpc GetPoolUid(QueryGetPoolUidRequest) returns (QueryGetPoolUidResponse) {
+    option (google.api.http).get = "/zigchain/dex/pool_uids/{base}/{quote}";
+  }
+
+  // Queries a list of PoolUids items.
+  rpc ListPoolUids(QueryAllPoolUidsRequest) returns (QueryAllPoolUidsResponse) {
+    option (google.api.http).get = "/zigchain/dex/pool_uids";
+  }
+
+  // Queries a list of SwapIn items.
+  rpc SwapIn(QuerySwapInRequest) returns (QuerySwapInResponse) {
+    option (google.api.http).get = "/zigchain/dex/swap_in/{pool_id}/{coin_in}";
+  }
+  // Queries a list of SwapIn items.
+  rpc SwapOut(QuerySwapOutRequest) returns (QuerySwapOutResponse) {
+    option (google.api.http).get =
+        "/zigchain/dex/swap_out/{pool_id}/{coin_out}";
+  }
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+
+  // params holds all the parameters of this module.
+  Params params = 1
+      [ (gogoproto.nullable) = false, (amino.dont_omitempty) = true ];
+}
+
+// QueryGetPoolRequest gets a specific pool by its ID.
+message QueryGetPoolRequest { string pool_id = 1; }
+
+// QueryGetPoolResponse is the response type for the Query/GetPool RPC method.
+message QueryGetPoolResponse { Pool pool = 1 [ (gogoproto.nullable) = false ]; }
+
+// QueryGetPoolRequest gets a specific pool by its ID.
+message QueryGetPoolBalancesRequest { string pool_id = 1; }
+
+// QueryGetPoolResponse is the response type for the Query/GetPool RPC method.
+message QueryGetPoolBalancesResponse {
+  Pool pool = 1 [ (gogoproto.nullable) = false ];
+  repeated cosmos.base.v1beta1.Coin balances = 2
+      [ (gogoproto.nullable) = false ];
+}
+
+// QueryAllPoolRequest is the request type for the Query/AllPool RPC method.
+message QueryAllPoolRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllPoolResponse is the response type for the Query/AllPool RPC method.
+message QueryAllPoolResponse {
+  repeated Pool pool = 1 [ (gogoproto.nullable) = false ];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetPoolsMetaRequest gets a specific pool by its ID.
+message QueryGetPoolsMetaRequest {}
+
+// QueryGetPoolsMetaResponse is the response type for the Query/GetPool RPC
+// method.
+message QueryGetPoolsMetaResponse {
+  PoolsMeta pools_meta = 1 [ (gogoproto.nullable) = false ];
+}
+
+// QueryGetPoolUidRequest gets a specific pool based on base and quote.
+message QueryGetPoolUidRequest {
+  string base = 1;
+  string quote = 2;
+}
+
+// QueryGetPoolUidResponse is the response type for the Query/GetPool RPC
+// method.
+message QueryGetPoolUidResponse {
+  PoolUids pool_uids = 1 [ (gogoproto.nullable) = false ];
+}
+
+// QueryAllPoolUidsRequest is the request type for the Query/AllPool RPC method.
+message QueryAllPoolUidsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllPoolUidsResponse is the response type for the Query/AllPool RPC
+// method.
+message QueryAllPoolUidsResponse {
+  repeated PoolUids pool_uids = 1 [ (gogoproto.nullable) = false ];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QuerySwapInRequest gets a outgoing price from specific pool and incoming
+// token.
+message QuerySwapInRequest {
+  string pool_id = 1;
+  string coin_in = 2;
+}
+
+// QuerySwapInResponse returns amount of tokens given back given pool id and
+// incoming.
+message QuerySwapInResponse {
+  cosmos.base.v1beta1.Coin coin_out = 1 [ (gogoproto.nullable) = false ];
+  cosmos.base.v1beta1.Coin fee = 2 [ (gogoproto.nullable) = false ];
+}
+
+// QuerySwapOutRequest gets a incoming price from specific pool and outgoing
+// token.
+message QuerySwapOutRequest {
+  string pool_id = 1;
+  string coin_out = 2;
+}
+
+// QuerySwapInResponse returns amount of tokens given back given pool id and
+// incoming.
+message QuerySwapOutResponse {
+  cosmos.base.v1beta1.Coin coin_in = 1 [ (gogoproto.nullable) = false ];
+  cosmos.base.v1beta1.Coin fee = 2 [ (gogoproto.nullable) = false ];
+}

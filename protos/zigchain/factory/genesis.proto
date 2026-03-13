@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package zigchain.factory;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "zigchain/factory/params.proto";
+import "zigchain/factory/denom.proto";
+import "zigchain/factory/denom_auth.proto";
+
+option go_package = "zigchain/x/factory/types";
+
+// GenesisState defines the factory module's genesis state.
+message GenesisState {
+
+  // params defines all the parameters of the module.
+  Params params = 1
+      [ (gogoproto.nullable) = false, (amino.dont_omitempty) = true ];
+  repeated Denom denom_list = 2 [ (gogoproto.nullable) = false ];
+  repeated DenomAuth denom_auth_list = 3 [ (gogoproto.nullable) = false ];
+}

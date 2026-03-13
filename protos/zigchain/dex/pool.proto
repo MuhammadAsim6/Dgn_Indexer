@@ -1,0 +1,24 @@
+syntax = "proto3";
+package zigchain.dex;
+
+option go_package = "zigchain/x/dex/types";
+import "gogoproto/gogo.proto";
+import "cosmos/base/v1beta1/coin.proto";
+
+// Pool is a struct that contains the pool_id, base, quote, lp_token, creator,
+// fee, and formula
+message Pool {
+  string pool_id = 1;
+  // we allow for list of coins that is auto sorted by denom,
+  // but also allowing for more then two coins in pool in future, like tripools
+  cosmos.base.v1beta1.Coin lp_token = 2 [ (gogoproto.nullable) = false ];
+  string creator = 3;
+  uint32 fee = 4; // fee is per 100,000
+  string formula = 5;
+  repeated cosmos.base.v1beta1.Coin coins = 6 [ (gogoproto.nullable) = false ];
+  string address = 7;
+}
+
+// PoolsPair is a struct that contains the pool_id only, used as secondary index
+// into pools
+message PoolPair { string pool_id = 1; }

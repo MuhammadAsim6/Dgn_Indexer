@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package zigchain.tokenwrapper;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "cosmos_proto/cosmos.proto";
+import "zigchain/tokenwrapper/params.proto";
+import "cosmos/base/v1beta1/coin.proto";
+
+option go_package = "zigchain/x/tokenwrapper/types";
+
+// PauserAddresses represents a list of pauser addresses
+message PauserAddresses {
+  repeated string addresses = 1
+      [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+}
+
+// GenesisState defines the tokenwrapper module's genesis state.
+message GenesisState {
+
+  // params defines all the parameters of the module.
+  Params params = 1
+      [ (gogoproto.nullable) = false, (amino.dont_omitempty) = true ];
+
+  // total_transferred_in defines the total amount of ZIG tokens transferred in
+  string total_transferred_in = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // total_transferred_out defines the total amount of ZIG tokens transferred
+  // out
+  string total_transferred_out = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // operator_address defines the address that has permission to update operator
+  // and control module state
+  string operator_address = 4
+      [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+
+  // proposed_operator_address defines the address that has proposed to update
+  // operator and control module state
+  string proposed_operator_address = 5
+      [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+
+  // pauser_addresses defines the list of addresses that have permission to
+  // pause or disable the token wrapper module
+  repeated string pauser_addresses = 6
+      [ (cosmos_proto.scalar) = "cosmos.AddressString" ];
+
+  // enabled defines whether the token wrapper functionality is enabled
+  bool enabled = 7;
+
+  // native_client_id defines the client ID of the source chain
+  string native_client_id = 8;
+
+  // native_port defines the port ID of the source chain
+  string native_port = 9;
+
+  // native_channel defines the channel ID of the source chain
+  string native_channel = 10;
+
+  // denom defines the denomination of the token
+  string denom = 11;
+
+  // decimal difference between Axelar ZIG (18 decimals) and ZIGChain native ZIG
+  // (6 decimals)
+  uint32 decimal_difference = 12;
+
+  // counterparty_client_id defines the client ID of the destination chain
+  string counterparty_client_id = 13;
+
+  // counterparty_port defines the port ID of the destination chain
+  string counterparty_port = 14;
+
+  // counterparty_channel defines the channel ID of the destination chain
+  string counterparty_channel = 15;
+}
